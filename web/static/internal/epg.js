@@ -107,6 +107,7 @@ function renderSimilarChannels(similarChannels) {
 
     if (!similarChannels || similarChannels.length === 0) {
         similarChannelsParent.style.display = 'none';
+        similarChannelsParent.classList.add('hidden');
         return;
     }
 
@@ -119,25 +120,26 @@ function renderSimilarChannels(similarChannels) {
 
         const channelCard = createElement('a', {
             href: `/play/${channel.channel_id}`,
-            className: 'card relative border border-primary shadow-lg hover:shadow-xl hover:bg-base-300 transition-all duration-200 ease-in-out scale-100 hover:scale-105 group',
+            className: 'channel-card card group',
             'data-channel-id': channel.channel_id,
             tabindex: '0'
         }, '', `
-            <div class="flex flex-col items-center p-2">
+            <div class="channel-card-inner">
                 <img
                     src="${logoURL}"
                     loading="lazy"
                     alt="${channel.channel_name}"
-                    class="h-12 w-12 rounded-full bg-gray-200"
+                    class="channel-logo h-12 w-12 sm:h-14 sm:w-14"
                     onerror="this.style.display='none'"
                 />
-                <span class="text-sm font-bold mt-1 text-center line-clamp-2">${channel.channel_name}</span>
+                <span class="font-bold channel-title line-clamp-2 text-sm">${channel.channel_name}</span>
             </div>
         `);
 
         similarChannelsContainer.appendChild(channelCard);
     });
 
+    similarChannelsParent.classList.remove('hidden');
     similarChannelsParent.style.display = 'block';
 }
 

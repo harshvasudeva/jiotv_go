@@ -3,16 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="manifest" href="/static/manifest.json">
+    <link rel="manifest" href="/static/manifest.json" />
     <title>{{ .Title }}</title>
     {{ template "styling" . }}
   </head>
 
-  <body>
+  <body class="min-h-screen bg-base-200 text-base-content">
+    <a href="#main-content" class="sr-only z-50 rounded-lg bg-base-100 px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
+      Skip to content
+    </a>
     {{ template "navbar" . }}
-    <div class="container mx-auto">{{ template "channel_list" . }}</div>
+    <main id="main-content" class="pb-12">
+      <section class="app-shell pt-5 sm:pt-7">
+        <div class="surface-card p-4 sm:p-6">
+          <h1 class="text-balance text-xl font-semibold tracking-tight sm:text-2xl">Live TV, simplified</h1>
+          <p class="mt-2 max-w-3xl text-sm text-base-content/70 sm:text-base">
+            Search channels, filter by category or language, and keep your favourites in one place.
+          </p>
+        </div>
+      </section>
+      {{ template "channel_list" . }}
+    </main>
     {{ template "login_dialog" . }}
     <script src="/static/internal/utils.js"></script>
+    <script src="/static/internal/channels.js"></script>
     <script src="/static/internal/index.js"></script>
     <script src="/static/internal/common.js"></script>
     {{ template "footer" . }}

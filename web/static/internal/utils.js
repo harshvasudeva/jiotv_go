@@ -262,6 +262,9 @@ function updateFavoriteButtonState(channelId, isFavorite) {
   
   if (button) {
     toggleClasses(button, 'favorited', null, isFavorite);
+    button.setAttribute('aria-pressed', isFavorite ? 'true' : 'false');
+    button.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
+    button.setAttribute('title', isFavorite ? 'Remove from favorites' : 'Add to favorites');
   }
   
   if (starIcon && xIcon) {

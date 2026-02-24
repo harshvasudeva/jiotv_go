@@ -2,11 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-base-200 text-base-content antialiased;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply mx-auto w-full max-w-[1440px] px-3 sm:px-4 lg:px-6;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-base-300/70 bg-base-100/90 shadow-sm backdrop-blur;
+  }
+
+  .section-heading {
+    @apply text-lg font-semibold tracking-tight sm:text-xl;
+  }
+
+  .muted-copy {
+    @apply text-sm text-base-content/70;
+  }
+
+  .control-input {
+    @apply input input-bordered w-full rounded-xl border-base-300 bg-base-100;
+  }
+
+  .control-select {
+    @apply select select-bordered w-full rounded-xl border-base-300 bg-base-100;
+  }
+
+  .channel-card {
+    @apply card relative overflow-hidden rounded-2xl border border-base-300/80 bg-base-100 shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary;
+  }
+
+  .channel-card-inner {
+    @apply flex flex-col items-center gap-2 p-3 sm:p-4;
+  }
+
+  .channel-logo {
+    @apply h-14 w-14 rounded-xl bg-base-200 object-cover sm:h-16 sm:w-16 lg:h-20 lg:w-20;
+  }
+
+  .channel-title {
+    @apply text-center text-sm font-bold leading-tight sm:text-base;
+  }
+}
+
 @layer utilities {
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  .text-balance {
+    text-wrap: balance;
   }
 }

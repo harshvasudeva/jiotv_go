@@ -1,3 +1,18 @@
 {{ define "styling" }}
 <link href="/static/internal/tailwind.css" rel="stylesheet" />
+<meta name="theme-color" content="#0f172a" />
+<script>
+  (() => {
+    try {
+      const rawTheme = localStorage.getItem("theme");
+      if (!rawTheme) return;
+      const theme = JSON.parse(rawTheme);
+      if (theme === "light" || theme === "dark") {
+        document.documentElement.setAttribute("data-theme", theme);
+      }
+    } catch (_) {
+      // Ignore invalid persisted theme values.
+    }
+  })();
+</script>
 {{ end }}

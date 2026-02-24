@@ -14,6 +14,7 @@ import (
 	"github.com/jiotv-go/jiotv_go/v3/internal/constants"
 	"github.com/jiotv-go/jiotv_go/v3/internal/constants/headers"
 	"github.com/jiotv-go/jiotv_go/v3/internal/constants/urls"
+	"github.com/jiotv-go/jiotv_go/v3/pkg/store"
 	"github.com/jiotv-go/jiotv_go/v3/pkg/utils"
 )
 
@@ -24,7 +25,8 @@ const (
 	JIOTV_CDN_DOMAIN = urls.JioTVCDNDomain
 
 	// URL for fetching channels from JioTV API
-	CHANNELS_API_URL = urls.ChannelsAPIURL
+	CHANNELS_API_URL      = urls.ChannelsAPIURL
+	CHANNELS_AUTH_API_URL = urls.ChannelURL
 	// Error message for unsupported custom channels file formats
 	errUnsupportedChannelsFormat = constants.ErrUnsupportedChannelsFormat
 	// Maximum recommended number of custom channels before performance warnings
@@ -429,12 +431,44 @@ func Channels() (ChannelsResponse, error) {
 		"usertype":         "JIO",
 	}
 
-	// Make the HTTP request
-	resp, err := utils.MakeHTTPRequest(utils.HTTPRequestConfig{
-		URL:     CHANNELS_API_URL,
+	channelAPIURL := CHANNELS_API_URL
+
+	// Prefer account-aware channel listing when OTP credentials are available.
+	if store.KVS != nil {
+		credentials, err := utils.GetJIOTVCredentials()
+		if err != nil {
+			utils.SafeLogf("Unable to load credentials for authenticated channel list: %v", err)
+		} else if credentials != nil && credentials.AccessToken != "" && credentials.SSOToken != "" && credentials.CRM != "" {
+			requestHeaders[headers.AccessToken] = credentials.AccessToken
+			requestHeaders["ssotoken"] = credentials.SSOToken
+			requestHeaders["crmid"] = credentials.CRM
+			requestHeaders["subscriberId"] = credentials.CRM
+			requestHeaders["userId"] = credentials.CRM
+			requestHeaders["usertype"] = "tvYR7NSNn7rymo3F"
+			requestHeaders["usergroup"] = "tvYR7NSNn7rymo3F"
+			requestHeaders[headers.VersionCode] = headers.VersionCode389
+			requestHeaders["languageId"] = "6"
+			requestHeaders["isott"] = "false"
+			if credentials.UniqueID != "" {
+				requestHeaders["uniqueId"] = credentials.UniqueID
+			}
+			channelAPIURL = CHANNELS_AUTH_API_URL
+		}
+	}
+
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     channelAPIURL,
 		Method:  "GET",
 		Headers: requestHeaders,
-	}, client)
+	}
+
+	// Make the HTTP request
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil && channelAPIURL != CHANNELS_API_URL {
+		utils.Log.Printf("Error fetching authenticated channels, retrying default endpoint: %v", err)
+		requestConfig.URL = CHANNELS_API_URL
+		resp, err = utils.MakeHTTPRequest(requestConfig, client)
+	}
 	if err != nil {
 		utils.Log.Printf("Error fetching channels from JioTV API: %v", err)
 		return ChannelsResponse{}, err

@@ -1,5 +1,23 @@
 const htmlTag = document.getElementsByTagName("html")[0];
 
+const setThemeIcons = (theme) => {
+  const elements = safeGetElementsById(["sunIcon", "moonIcon"], true);
+  const { sunIcon, moonIcon } = elements;
+
+  if (!sunIcon || !moonIcon) {
+    return;
+  }
+
+  if (theme === "light") {
+    sunIcon.classList.replace("swap-on", "swap-off");
+    moonIcon.classList.replace("swap-off", "swap-on");
+    return;
+  }
+
+  moonIcon.classList.replace("swap-on", "swap-off");
+  sunIcon.classList.replace("swap-off", "swap-on");
+};
+
 const getCurrentTheme = () => {
   const storedTheme = getLocalStorageItem("theme");
   if (storedTheme) {
@@ -27,21 +45,14 @@ const toggleTheme = () => {
   
   setLocalStorageItem("theme", newTheme);
   htmlTag.setAttribute("data-theme", newTheme);
+  setThemeIcons(newTheme);
 };
 
 const initializeTheme = () => {
-  const elements = safeGetElementsById(["sunIcon", "moonIcon"]);
-  const { sunIcon, moonIcon } = elements;
-
-  if (getCurrentTheme() === "light") {
-    const htmlTag = document.getElementsByTagName("html")[0];
-    
-    if (sunIcon && moonIcon) {
-      sunIcon.classList.replace("swap-on", "swap-off");
-      moonIcon.classList.replace("swap-off", "swap-on");
-    }
-    htmlTag.setAttribute("data-theme", "light");
-  }
+  const theme = getCurrentTheme();
+  const htmlTag = document.getElementsByTagName("html")[0];
+  htmlTag.setAttribute("data-theme", theme);
+  setThemeIcons(theme);
 };
 
 initializeTheme();

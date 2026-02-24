@@ -1,33 +1,62 @@
 const search = (searchTerm) => {
   const channels = document.querySelectorAll('.card');
+  const normalizedTerm = searchTerm.trim().toLowerCase();
+  let visibleCount = 0;
 
   // Update URL search parameter
-  updateUrlParameter('search', searchTerm);
+  updateUrlParameter('search', normalizedTerm);
 
   channels.forEach((channel) => {
     const nameElement = channel.querySelector('.font-bold');
     if (nameElement) {
       const name = nameElement.textContent.toLowerCase();
-      channel.style.display = name.includes(searchTerm.toLowerCase()) ? 'block' : 'none';
+      const isVisible = normalizedTerm === '' || name.includes(normalizedTerm);
+      channel.style.display = isVisible ? 'block' : 'none';
+      if (isVisible) {
+        visibleCount += 1;
+      }
     }
   });
+
+  const emptyState = safeGetElementById('portexe-empty-state', true);
+  if (emptyState) {
+    if (visibleCount === 0 && normalizedTerm !== '') {
+      emptyState.classList.remove('hidden');
+    } else {
+      emptyState.classList.add('hidden');
+    }
+  }
 };
 
 const init = () => {
   const searchInput = safeGetElementById('portexe-search-input');
+  let searchDebounceTimer = null;
 
   // Check for search parameter on page load
   const urlParams = getCurrentUrlParams();
   const searchParam = urlParams.get('search');
 
   if (searchParam && searchInput) {
-    search(searchParam);
-    searchInput.value = searchParam;
+    const trimmed = searchParam.trim();
+    search(trimmed);
+    searchInput.value = trimmed;
+  } else {
+    search('');
   }
 
   if (searchInput) {
     searchInput.addEventListener('keyup', (e) => {
-      search(e.target.value);
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        search(e.target.value);
+      }, 120);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        searchInput.value = '';
+        search('');
+      }
     });
   }
 };

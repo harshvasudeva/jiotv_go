@@ -5,11 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JioTV Go</title>
     <style>
+      html,
+      body {
+        height: 100%;
+      }
+
       body {
         margin: 0;
-        padding: 0;
-        background-color: black;
-        overflow-y: hidden;
+        background: radial-gradient(circle at top, #101827 0%, #05070d 60%);
+        overflow: hidden;
+      }
+
+      #player-shell {
+        height: 100%;
+        width: 100%;
+      }
+
+      #jiotv_go_player {
+        height: 100%;
+        width: 100%;
       }
     </style>
     <link rel="stylesheet" href="/static/external/flowplayer.css" />
@@ -21,7 +35,9 @@
   </head>
 
   <body>
-    <div id="jiotv_go_player"></div>
+    <div id="player-shell">
+      <div id="jiotv_go_player"></div>
+    </div>
     <script>
       var player = flowplayer("#jiotv_go_player", {
         src: "{{ .play_url }}",
@@ -34,20 +50,18 @@
         asel: {},
         ui: flowplayer.ui.USE_THIN_CONTROLBAR,
       });
+
       player.on(flowplayer.events.FULLSCREEN_ENTER, (e) => {
-        // rotate to landscape on mobile devices
         if (screen.orientation) {
-          screen.orientation.lock("landscape").catch((e) => {
-            if (e.name === "NotSupportedError") {
-              // ignore
-            } else {
-              console.error(e);
+          screen.orientation.lock("landscape").catch((err) => {
+            if (err.name !== "NotSupportedError") {
+              console.error(err);
             }
           });
         }
       });
+
       player.on(flowplayer.events.FULLSCREEN_EXIT, (e) => {
-        // release orientation lock on mobile devices
         if (screen.orientation) {
           screen.orientation.unlock();
         }

@@ -12,17 +12,17 @@ const {
   "portexe-quality-select": qualityElement
 } = elements;
 
-catLangApplyButton.addEventListener("click", () => {
-  // Apply URL parameters and reload
-  updateUrlParameters({
-    language: languageElement.value,
-    category: categoryElement.value,
-    q: qualityElement.value
-  });
+if (catLangApplyButton && languageElement && categoryElement && qualityElement) {
+  catLangApplyButton.addEventListener("click", () => {
+    updateUrlParameters({
+      language: languageElement.value,
+      category: categoryElement.value,
+      q: qualityElement.value
+    });
 
-  // Reload the page
-  document.location.href = window.location.href;
-});
+    document.location.href = window.location.href;
+  });
+}
 
 // On page load, set values from URL parameters
 const urlParams = getCurrentUrlParams();
@@ -55,7 +55,12 @@ const onQualityChange = (elem) => {
   for (let i = 0; i < playElems.length; i++) {
     const cardElem = playElems[i];
     const href = cardElem.getAttribute("href");
-    cardElem.setAttribute("href", href.split("?")[0] + "?" + currentParams.toString());
+    if (!href) {
+      continue;
+    }
+    const baseHref = href.split("?")[0];
+    const query = currentParams.toString();
+    cardElem.setAttribute("href", query ? `${baseHref}?${query}` : baseHref);
   }
 };
 
