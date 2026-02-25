@@ -1,80 +1,86 @@
-# JioTV Go 📺
+# JioTV Desktop (Fork)
 
-JioTV Go, an exciting project that allows you to stream Live TV channels on the web and IPTV. It's a web wrapper around the JioTV Android app, utilizing the same API to fetch and stream channels.
+This repository is an actively maintained fork of the archived JioTV Go project.  
+It provides a modern web UI + IPTV-friendly endpoints for streaming JioTV channels using OTP login.
 
-Ready to dive in? Download the latest binary for your operating system from [here](https://github.com/jiotv-go/jiotv_go/releases/latest), and explore the [documentation](https://jiotv_go.rabil.me/) to start your JioTV Go adventure! 🚀
+## What this fork includes
 
-_Give us 🌟 on GitHub if you like this project!_
+- Live TV playback in browser
+- OTP login flow
+- Playlist export for IPTV (`/playlist.m3u`)
+- EPG endpoint (`/epg.xml.gz`)
+- Premium provider detection (account-dependent)
+- Refreshed frontend UI
 
-We have video tutorials for [Windows](https://youtu.be/BnNTYTSvVBc), and [Android](https://youtu.be/ejiuml11g8o) users. Please watch them if you are unsure about the installation process.
+## Quick start
 
-## Features 🌟
+```bash
+go run main.go serve --host 127.0.0.1 --port 5001
+```
 
-- 📺 Stream Live TV channels, just like in the JioTV Android app.
-- 🎬 M3U playlist support for IPTV.
-- 🌐 Web interface for watching Live TV.
-- 📅 EPG (Electronic Program Guide) support in compressed GZipped XML or JSON format.
-- 🎥 Quality selection (Low, Medium, High) supported.
-- ⚙️ Configurable port and host.
-- 🔐 Authentication using Jio number with OTP.
-- 👥 Support for multiple clients simultaneously.
-- 🚀 Written in Go, ensuring it's fast, lightweight, and portable.
-- 💻 Command-line interface for server management and self-update.
-- 🔄 Background start and stop feature.
+Open: `http://127.0.0.1:5001`
 
-Get Started with JioTV Go by following the [Get Started](https://jiotv_go.rabil.me/get_started) guide.
+## Build
 
-## Table of Contents
+```bash
+go mod tidy
+go build -o build/jiotv_go .
+cd web && npm ci
+cd web && npm run build
+```
 
-<details close>
-  <summary>Click to expand/collapse</summary>
-  
-- [JioTV Go 📺](#jiotv-go-)
-  - [Features 🌟](#features-)
-  - [Table of Contents](#table-of-contents)
-  - [Documentation](#documentation)
-  - [Join the community on Telegram:](#join-the-community-on-telegram)
-  - [Star History](#star-history)
-  - [Contributors](#contributors)
-  - [Let's Make JioTV Go Better Together! 🤝](#lets-make-jiotv-go-better-together-)
-    - [**Report Bugs**](#report-bugs)
-    - [**Ready to Contribute? Join the Journey! 🚀**](#ready-to-contribute-join-the-journey-)
-  - [**License: Attribution 4.0 International (CC BY 4.0)**](#license-attribution-40-international-cc-by-40)
-</details>
+## Run (compiled binary)
 
-## Documentation
+Linux/macOS:
 
-The complete documentation for JioTV Go is available at https://jiotv_go.rabil.me/ 📖
+```bash
+./build/jiotv_go serve --host 127.0.0.1 --port 5001
+```
 
-## Join the community on Telegram:
+Windows (PowerShell):
 
-- [Announcement Channel (`jiotv_go`)](https://telegram.me/jiotv_go)
-- [Support Group (`jiotv_go_chat`)](https://telegram.me/jiotv_go_chat)
+```powershell
+.\build\jiotv_go.exe serve --host 127.0.0.1 --port 5001
+```
 
-## Star History
+## Common commands
 
-<a href="https://star-history.com/#jiotv-go/jiotv_go&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=jiotv-go/jiotv_go&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=jiotv-go/jiotv_go&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=jiotv-go/jiotv_go&type=Date" />
-  </picture>
-</a>
+```bash
+jiotv_go --help
+jiotv_go serve --help
+jiotv_go login --help
+jiotv_go epg --help
+jiotv_go background --help
+```
 
-## Contributors
+## Key routes
 
-[![Contributors](https://contributors-img.web.app/image?repo=jiotv-go/jiotv_go)](https://github.com/jiotv-go/jiotv_go/graphs/contributors)
+- `GET /` - Web UI
+- `GET /channels` - Channels JSON
+- `GET /playlist.m3u` - M3U playlist
+- `GET /epg.xml.gz` - EPG XML (gzipped)
+- `GET /premium/providers` - Premium providers for current account
 
-## Let's Make JioTV Go Better Together! 🤝
+## Testing
 
-### **Report Bugs**
+Backend:
 
-Found a pesky bug? No worries! Please help us improve JioTV Go by creating an issue [here](https://github.com/jiotv-go/jiotv_go/issues/new/choose). Be sure to include detailed steps to reproduce the bug, describe the expected behavior, and, if possible, attach screenshots. Your feedback is invaluable!
+```bash
+go test -v ./...
+```
 
-### **Ready to Contribute? Join the Journey! 🚀**
+Frontend:
 
-We wholeheartedly welcome your contributions. If you have ideas, fixes, or enhancements in mind, don't hesitate to create a pull request with your changes. For significant alterations, start by creating an issue to discuss your plans with us. Together, we can make JioTV Go even more incredible.
+```bash
+cd web && npm test -- --watchAll=false --ci
+```
 
-## **License: Attribution 4.0 International (CC BY 4.0)**
+## Notes
 
-**Embrace the Spirit of Free Software!** JioTV Go is open-source and free to use. We're committed to keeping it accessible to everyone. If you come across any unauthorized attempts to sell this project, please report them to [me](mailto:mail@rabil.me) so we can take swift action. Your support is essential in safeguarding our project's values. 🙌📜💼
+- This fork is independent from upstream community channels and contributor metadata.
+- Use only with an account that already has valid Jio service access.
+
+## License
+
+Creative Commons Attribution 4.0 International (CC BY 4.0).  
+See [`LICENSE`](./LICENSE).
