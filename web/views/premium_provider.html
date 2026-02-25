@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ .Title }}</title>
+    {{ template "styling" . }}
+  </head>
+
+  <body class="min-h-screen bg-base-200 text-base-content">
+    {{ template "navbar" . }}
+
+    <main class="pb-12">
+      <section class="app-shell py-4 sm:py-6">
+        <div class="surface-card p-4 sm:p-6">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 class="text-balance text-xl font-semibold tracking-tight sm:text-2xl">{{ .ProviderName }}</h1>
+              <p class="mt-2 text-sm text-base-content/70">
+                Browse premium items and play them directly in the web player.
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <a href="/" class="btn btn-ghost rounded-xl">Back to channels</a>
+              {{if .ProviderURL}}
+              <a href="{{.ProviderURL}}" target="_blank" rel="noopener noreferrer" class="btn btn-outline rounded-xl">Open provider site</a>
+              {{end}}
+            </div>
+          </div>
+          {{if .Message}}
+          <p class="mt-3 text-xs text-base-content/60">Provider API: {{.Message}}</p>
+          {{end}}
+        </div>
+
+        <div class="mt-6">
+          {{if .Items}}
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+            {{range $item := .Items}}
+            <article class="channel-card card">
+              <div class="channel-card-inner">
+                {{if $item.ImageURL}}
+                <img src="{{$item.ImageURL}}" loading="lazy" alt="{{$item.Title}}" class="channel-logo" />
+                {{else}}
+                <div class="channel-logo flex items-center justify-center text-xs text-base-content/60">No image</div>
+                {{end}}
+                <h2 class="font-bold channel-title line-clamp-2">{{$item.Title}}</h2>
+                {{if $item.Subtitle}}
+                <p class="text-xs text-base-content/70 line-clamp-1">{{$item.Subtitle}}</p>
+                {{end}}
+                <a
+                  href="/premium/providers/{{$.ProviderID}}/play?streamType={{$item.StreamType}}{{if $item.ChannelID}}&channelId={{$item.ChannelID}}{{end}}{{if $item.ContentID}}&contentId={{$item.ContentID}}{{end}}{{if $item.SubCategoryID}}&subCategoryId={{$item.SubCategoryID}}{{end}}"
+                  class="btn btn-primary btn-sm mt-2 rounded-xl"
+                >
+                  Watch
+                </a>
+              </div>
+            </article>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="surface-card p-6 text-center">
+            <h2 class="text-lg font-semibold">No in-app streams found</h2>
+            <p class="mt-2 text-sm text-base-content/70">
+              This premium provider is detected for your account, but the current provider catalog API returned no playable entries.
+            </p>
+          </div>
+          {{end}}
+        </div>
+      </section>
+    </main>
+
+    {{ template "footer" . }}
+  </body>
+</html>

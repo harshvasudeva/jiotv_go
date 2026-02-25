@@ -12,10 +12,13 @@ const (
 	AccessToken    = "accessToken"
 
 	// Custom headers used by JioTV API
-	DeviceType  = "devicetype"
-	VersionCode = "versionCode"
-	OS          = "os"
-	XAPIKey     = "x-api-key"
+	DeviceType   = "devicetype"
+	VersionCode  = "versionCode"
+	OS           = "os"
+	XAPIKey      = "x-api-key"
+	XAccessToken = "X-AccessToken"
+	XVersionCode = "X-VersionCode"
+	XPlatform    = "X-Platform"
 )
 
 // HTTP Header Values
@@ -36,7 +39,8 @@ const (
 	DeviceTypePhone = "phone"
 	OSAndroid       = "android"
 	VersionCode315  = "315"
- 	VersionCode389  = "389"
+	VersionCode389  = "389"
+	VersionCode401  = "401"
 
 	// API Key
 	APIKeyJio = "l7xx75e822925f184370b2e25170c5d5820a"

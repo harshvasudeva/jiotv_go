@@ -51,6 +51,94 @@ type ChannelsResponse struct {
 	Result  []Channel `json:"result"`
 }
 
+// PremiumProvider represents a premium partner available for the logged-in account.
+type PremiumProvider struct {
+	ID         string `json:"id"`
+	ProviderID string `json:"providerId,omitempty"`
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+}
+
+// PlansResponse is the response payload for account plans API.
+type PlansResponse struct {
+	Result PlansResult `json:"result"`
+}
+
+// PlansResult wraps plans entries returned by plans API.
+type PlansResult struct {
+	Plans []Plan `json:"plans"`
+}
+
+// Plan represents a single plan returned by plans API.
+type Plan struct {
+	Providers []PlanProvider `json:"providers"`
+}
+
+// PlanProvider represents a provider entry attached to a plan.
+type PlanProvider struct {
+	ProviderID   string `json:"providerId"`
+	ProviderName string `json:"providerName"`
+}
+
+type PremiumProviderFilterResponse struct {
+	Data PremiumProviderFilterData `json:"data"`
+}
+
+type PremiumProviderFilterData struct {
+	Provider []PremiumProviderFilters `json:"provider"`
+}
+
+type PremiumProviderFilters struct {
+	ProviderID string                  `json:"providerId"`
+	Filters    []PremiumProviderFilter `json:"filters"`
+}
+
+type PremiumProviderFilter struct {
+	FilterName string                       `json:"filterName"`
+	Values     []PremiumProviderFilterValue `json:"values"`
+}
+
+type PremiumProviderFilterValue struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type PremiumProviderCatalogEnvelope struct {
+	Code         int                      `json:"Code"`
+	CodeLower    int                      `json:"code"`
+	Message      string                   `json:"Message"`
+	MessageLower string                   `json:"message"`
+	Data         []map[string]interface{} `json:"Data"`
+	DataLower    []map[string]interface{} `json:"data"`
+}
+
+type PremiumProviderCatalogItem struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Subtitle      string `json:"subtitle,omitempty"`
+	Description   string `json:"description,omitempty"`
+	ImageURL      string `json:"imageUrl,omitempty"`
+	StreamType    string `json:"streamType"`
+	ProviderID    string `json:"providerId"`
+	ChannelID     string `json:"channelId,omitempty"`
+	ContentID     string `json:"contentId,omitempty"`
+	SubCategoryID string `json:"subCategoryId,omitempty"`
+}
+
+type PremiumProviderCatalogResult struct {
+	ProviderID string                       `json:"providerId"`
+	Code       int                          `json:"code"`
+	Message    string                       `json:"message"`
+	Result     []PremiumProviderCatalogItem `json:"result"`
+}
+
+type PremiumProviderPlayRequest struct {
+	StreamType    string `json:"streamType" form:"streamType"`
+	ChannelID     string `json:"channelId" form:"channelId"`
+	ContentID     string `json:"contentId" form:"contentId"`
+	SubCategoryID string `json:"subCategoryId" form:"subCategoryId"`
+}
+
 // Bitrates represents Quality levels for live streams for JioTV API
 type Bitrates struct {
 	Auto   string `json:"auto"`

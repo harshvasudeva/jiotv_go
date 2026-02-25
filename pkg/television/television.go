@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	neturl "net/url"
+	"strconv"
 	"strings"
 
 	"github.com/valyala/fasthttp"
@@ -25,8 +27,11 @@ const (
 	JIOTV_CDN_DOMAIN = urls.JioTVCDNDomain
 
 	// URL for fetching channels from JioTV API
-	CHANNELS_API_URL      = urls.ChannelsAPIURL
-	CHANNELS_AUTH_API_URL = urls.ChannelURL
+	CHANNELS_API_URL               = urls.ChannelsAPIURL
+	CHANNELS_AUTH_API_URL          = urls.ChannelURL
+	PLANS_API_URL                  = urls.PlansAPIURL
+	PROVIDER_CONFIG_API_BASE_URL   = urls.ProviderConfigAPIBaseURL
+	PROVIDER_METADATA_API_BASE_URL = urls.ProviderMetadataAPIBaseURL
 	// Error message for unsupported custom channels file formats
 	errUnsupportedChannelsFormat = constants.ErrUnsupportedChannelsFormat
 	// Maximum recommended number of custom channels before performance warnings
@@ -52,6 +57,50 @@ var (
 	// customChannelsCacheMap holds cached custom channels indexed by ID for efficient lookups
 	customChannelsCacheMap map[string]Channel
 )
+
+type premiumProviderLink struct {
+	ProviderID  string
+	DisplayName string
+	URL         string
+}
+
+var premiumProviderByID = map[string]premiumProviderLink{
+	"Z0177": {
+		ProviderID:  "Z0177",
+		DisplayName: "FanCode",
+		URL:         "https://www.fancode.com/",
+	},
+}
+
+var premiumProviderByPlanID = map[string]premiumProviderLink{
+	"1019037": {
+		ProviderID:  "Z0177",
+		DisplayName: "FanCode",
+		URL:         "https://www.fancode.com/",
+	},
+}
+
+var premiumProviderByKeyword = []struct {
+	Keyword string
+	Link    premiumProviderLink
+}{
+	{
+		Keyword: "fancode",
+		Link: premiumProviderLink{
+			ProviderID:  "Z0177",
+			DisplayName: "FanCode",
+			URL:         "https://www.fancode.com/",
+		},
+	},
+	{
+		Keyword: "jiocinema",
+		Link: premiumProviderLink{
+			ProviderID:  "",
+			DisplayName: "JioCinema Premium",
+			URL:         "https://www.jiocinema.com/",
+		},
+	},
+}
 
 // New function creates a new Television instance with the provided credentials
 func New(credentials *utils.JIOTV_CREDENTIALS) *Television {
@@ -415,13 +464,953 @@ func getCustomChannels() []Channel {
 	return customChannels
 }
 
+func cloneMap(source map[string]string) map[string]string {
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func fetchChannelsFromAPI(client *fasthttp.Client, channelAPIURL string, requestHeaders map[string]string) (ChannelsResponse, error) {
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     channelAPIURL,
+		Method:  "GET",
+		Headers: requestHeaders,
+	}
+
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil {
+		return ChannelsResponse{}, err
+	}
+	defer fasthttp.ReleaseResponse(resp)
+
+	var apiResponse ChannelsResponse
+	if err := utils.ParseJSONResponse(resp, &apiResponse); err != nil {
+		return ChannelsResponse{}, err
+	}
+
+	return apiResponse, nil
+}
+
+func fetchPlansFromAPI(client *fasthttp.Client, plansAPIURL string, requestHeaders map[string]string) (PlansResponse, error) {
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     plansAPIURL,
+		Method:  "GET",
+		Headers: requestHeaders,
+	}
+
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil {
+		return PlansResponse{}, err
+	}
+	defer fasthttp.ReleaseResponse(resp)
+
+	var apiResponse PlansResponse
+	if err := utils.ParseJSONResponse(resp, &apiResponse); err != nil {
+		return PlansResponse{}, err
+	}
+
+	return apiResponse, nil
+}
+
+func buildAuthenticatedHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+	authHeaders := map[string]string{
+		headers.UserAgent:   headers.UserAgentOkHttp,
+		headers.Accept:      headers.AcceptJSON,
+		headers.DeviceType:  headers.DeviceTypePhone,
+		headers.OS:          headers.OSAndroid,
+		headers.VersionCode: headers.VersionCode401,
+		"appkey":            "NzNiMDhlYzQyNjJm",
+		"lbcookie":          "1",
+		"usertype":          "JIO",
+		"usergroup":         "tvYR7NSNn7rymo3F",
+		"languageId":        "6",
+		"isott":             "false",
+	}
+
+	if credentials == nil {
+		return authHeaders
+	}
+
+	if credentials.AccessToken != "" {
+		authHeaders[headers.AccessToken] = credentials.AccessToken
+	}
+	if credentials.SSOToken != "" {
+		authHeaders["ssotoken"] = credentials.SSOToken
+	}
+	if credentials.CRM != "" {
+		authHeaders["crmid"] = credentials.CRM
+		authHeaders["subscriberId"] = credentials.CRM
+		authHeaders["userId"] = credentials.CRM
+	}
+	if credentials.UniqueID != "" {
+		authHeaders["uniqueId"] = credentials.UniqueID
+	}
+
+	return authHeaders
+}
+
+func resolvePremiumProvider(providerID, providerName string) (premiumProviderLink, bool) {
+	normalizedProviderID := strings.ToUpper(strings.TrimSpace(providerID))
+	if normalizedProviderID != "" {
+		if providerLink, exists := premiumProviderByID[normalizedProviderID]; exists {
+			return providerLink, true
+		}
+	}
+
+	normalizedProviderName := strings.ToLower(strings.TrimSpace(providerName))
+	for _, premiumProvider := range premiumProviderByKeyword {
+		if strings.Contains(normalizedProviderName, premiumProvider.Keyword) {
+			return premiumProvider.Link, true
+		}
+	}
+
+	return premiumProviderLink{}, false
+}
+
+func extractPremiumProviders(plansResponse PlansResponse) []PremiumProvider {
+	premiumProviders := make([]PremiumProvider, 0)
+	seenProviders := make(map[string]struct{})
+
+	for _, plan := range plansResponse.Result.Plans {
+		for _, provider := range plan.Providers {
+			providerID := strings.ToUpper(strings.TrimSpace(provider.ProviderID))
+			providerName := strings.TrimSpace(provider.ProviderName)
+
+			providerLink, isPremiumProvider := resolvePremiumProvider(providerID, providerName)
+			if !isPremiumProvider {
+				continue
+			}
+
+			providerKey := providerID
+			if providerKey == "" {
+				providerKey = strings.ToLower(providerName)
+			}
+			if providerKey == "" {
+				continue
+			}
+			if _, alreadySeen := seenProviders[providerKey]; alreadySeen {
+				continue
+			}
+			seenProviders[providerKey] = struct{}{}
+
+			displayName := providerName
+			if displayName == "" {
+				displayName = providerLink.DisplayName
+			}
+			canonicalProviderID := providerID
+			if canonicalProviderID == "" {
+				canonicalProviderID = providerLink.ProviderID
+			}
+			providerResponseID := providerID
+			if providerResponseID == "" {
+				providerResponseID = providerKey
+			}
+
+			premiumProviders = append(premiumProviders, PremiumProvider{
+				ID:         providerResponseID,
+				ProviderID: canonicalProviderID,
+				Name:       displayName,
+				URL:        providerLink.URL,
+			})
+		}
+	}
+
+	return premiumProviders
+}
+
+func extractPremiumProvidersFromAccessToken(accessToken string) []PremiumProvider {
+	tokenParts := strings.Split(accessToken, ".")
+	if len(tokenParts) < 2 {
+		return []PremiumProvider{}
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(tokenParts[1])
+	if err != nil {
+		return []PremiumProvider{}
+	}
+
+	var claims struct {
+		Data struct {
+			Extra string `json:"extra"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return []PremiumProvider{}
+	}
+	if claims.Data.Extra == "" {
+		return []PremiumProvider{}
+	}
+
+	var tokenExtra struct {
+		PlanDetails struct {
+			PackageInfo []struct {
+				PlanID interface{} `json:"planid"`
+			} `json:"PackageInfo"`
+		} `json:"plandetails"`
+	}
+	if err := json.Unmarshal([]byte(claims.Data.Extra), &tokenExtra); err != nil {
+		return []PremiumProvider{}
+	}
+
+	premiumProviders := make([]PremiumProvider, 0)
+	seenProviders := make(map[string]struct{})
+
+	for _, packageInfo := range tokenExtra.PlanDetails.PackageInfo {
+		planID := strings.TrimSpace(fmt.Sprint(packageInfo.PlanID))
+		if planID == "" || planID == "<nil>" {
+			continue
+		}
+
+		providerLink, exists := premiumProviderByPlanID[planID]
+		if !exists {
+			continue
+		}
+		if _, alreadySeen := seenProviders[planID]; alreadySeen {
+			continue
+		}
+		seenProviders[planID] = struct{}{}
+
+		premiumProviders = append(premiumProviders, PremiumProvider{
+			ID:         planID,
+			ProviderID: providerLink.ProviderID,
+			Name:       providerLink.DisplayName,
+			URL:        providerLink.URL,
+		})
+	}
+
+	return premiumProviders
+}
+
+// PremiumProviders fetches premium providers enabled for the logged-in account.
+func PremiumProviders() ([]PremiumProvider, error) {
+	if store.KVS == nil {
+		return []PremiumProvider{}, nil
+	}
+
+	credentials, err := utils.GetJIOTVCredentials()
+	if err != nil {
+		if errors.Is(err, store.ErrKeyNotFound) {
+			return []PremiumProvider{}, nil
+		}
+		return nil, err
+	}
+	if credentials == nil || credentials.AccessToken == "" {
+		return []PremiumProvider{}, nil
+	}
+
+	if credentials.SSOToken != "" && credentials.CRM != "" {
+		client := utils.GetRequestClient()
+		plansResponse, err := fetchPlansFromAPI(client, PLANS_API_URL, buildAuthenticatedHeaders(credentials))
+		if err != nil {
+			utils.SafeLogf("Unable to fetch premium providers from plans API: %v", err)
+		} else {
+			plansBasedProviders := extractPremiumProviders(plansResponse)
+			if len(plansBasedProviders) > 0 {
+				return plansBasedProviders, nil
+			}
+		}
+	}
+
+	return extractPremiumProvidersFromAccessToken(credentials.AccessToken), nil
+}
+
+func resolvePremiumProviderID(providerIdentifier string) string {
+	normalizedIdentifier := strings.TrimSpace(providerIdentifier)
+	if normalizedIdentifier == "" {
+		return ""
+	}
+
+	upperIdentifier := strings.ToUpper(normalizedIdentifier)
+	if _, exists := premiumProviderByID[upperIdentifier]; exists {
+		return upperIdentifier
+	}
+	if providerLink, exists := premiumProviderByPlanID[upperIdentifier]; exists && providerLink.ProviderID != "" {
+		return providerLink.ProviderID
+	}
+
+	lowerIdentifier := strings.ToLower(normalizedIdentifier)
+	for providerID, providerLink := range premiumProviderByID {
+		lowerDisplayName := strings.ToLower(providerLink.DisplayName)
+		if strings.Contains(lowerDisplayName, lowerIdentifier) || strings.Contains(lowerIdentifier, lowerDisplayName) {
+			return providerID
+		}
+	}
+	for _, premiumProvider := range premiumProviderByKeyword {
+		if strings.Contains(lowerIdentifier, premiumProvider.Keyword) && premiumProvider.Link.ProviderID != "" {
+			return premiumProvider.Link.ProviderID
+		}
+	}
+
+	return ""
+}
+
+func buildProviderAPIHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+	providerHeaders := buildAuthenticatedHeaders(credentials)
+	if credentials != nil && credentials.AccessToken != "" {
+		providerHeaders[headers.XAccessToken] = credentials.AccessToken
+	}
+	providerHeaders[headers.XVersionCode] = "4.0"
+	providerHeaders[headers.XPlatform] = headers.OSAndroid
+	providerHeaders["platform"] = headers.OSAndroid
+	return providerHeaders
+}
+
+func fetchPremiumProviderFilterFromAPI(client *fasthttp.Client, providerID string, requestHeaders map[string]string) (PremiumProviderFilterResponse, error) {
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     strings.TrimRight(PROVIDER_CONFIG_API_BASE_URL, "/") + "/cnf/provider?providerId=" + neturl.QueryEscape(providerID),
+		Method:  "GET",
+		Headers: requestHeaders,
+	}
+
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil {
+		return PremiumProviderFilterResponse{}, err
+	}
+	defer fasthttp.ReleaseResponse(resp)
+
+	var filterResponse PremiumProviderFilterResponse
+	if err := utils.ParseJSONResponse(resp, &filterResponse); err != nil {
+		return PremiumProviderFilterResponse{}, err
+	}
+
+	return filterResponse, nil
+}
+
+func extractProviderQueryNames(filterResponse PremiumProviderFilterResponse, providerID string) []string {
+	queryNames := make([]string, 0)
+	seenNames := make(map[string]struct{})
+	normalizedProviderID := strings.ToUpper(strings.TrimSpace(providerID))
+
+	for _, providerFilters := range filterResponse.Data.Provider {
+		currentProviderID := strings.ToUpper(strings.TrimSpace(providerFilters.ProviderID))
+		if currentProviderID != "" && normalizedProviderID != "" && currentProviderID != normalizedProviderID {
+			continue
+		}
+		for _, filterItem := range providerFilters.Filters {
+			filterName := strings.TrimSpace(filterItem.FilterName)
+			if filterName == "" {
+				continue
+			}
+			if _, alreadySeen := seenNames[filterName]; alreadySeen {
+				continue
+			}
+			seenNames[filterName] = struct{}{}
+			queryNames = append(queryNames, filterName)
+		}
+	}
+
+	return queryNames
+}
+
+func buildProviderQueryMap(queryNames, selectedGenres []string, selectedContentType, selectedContentLanguage string) map[string]string {
+	queryMap := make(map[string]string)
+	genresCSV := strings.Join(selectedGenres, ",")
+
+	for _, queryName := range queryNames {
+		normalizedName := strings.ToLower(strings.TrimSpace(queryName))
+		if normalizedName == "" {
+			continue
+		}
+
+		value := ""
+		switch {
+		case strings.Contains(normalizedName, "genre") && genresCSV != "":
+			value = genresCSV
+		case strings.Contains(normalizedName, "type") && selectedContentType != "":
+			value = strings.TrimSpace(selectedContentType)
+		case strings.Contains(normalizedName, "language") && selectedContentLanguage != "":
+			value = strings.TrimSpace(selectedContentLanguage)
+		}
+
+		if value != "" {
+			queryMap[queryName] = value
+		}
+	}
+
+	return queryMap
+}
+
+func buildProviderDefaultQueryMap(filterResponse PremiumProviderFilterResponse, providerID string) map[string]string {
+	defaultQueryMap := make(map[string]string)
+	normalizedProviderID := strings.ToUpper(strings.TrimSpace(providerID))
+
+	for _, providerFilters := range filterResponse.Data.Provider {
+		currentProviderID := strings.ToUpper(strings.TrimSpace(providerFilters.ProviderID))
+		if currentProviderID != "" && normalizedProviderID != "" && currentProviderID != normalizedProviderID {
+			continue
+		}
+		for _, filterItem := range providerFilters.Filters {
+			filterName := strings.TrimSpace(filterItem.FilterName)
+			if filterName == "" {
+				continue
+			}
+
+			normalizedFilterName := strings.ToLower(filterName)
+			if !strings.Contains(normalizedFilterName, "genre") && !strings.Contains(normalizedFilterName, "type") && !strings.Contains(normalizedFilterName, "language") {
+				continue
+			}
+
+			selectedValue := ""
+			for _, filterValue := range filterItem.Values {
+				key := strings.TrimSpace(filterValue.Key)
+				if key == "" {
+					continue
+				}
+				if strings.EqualFold(key, "all") {
+					if selectedValue == "" {
+						selectedValue = key
+					}
+					continue
+				}
+				selectedValue = key
+				break
+			}
+
+			if selectedValue != "" {
+				defaultQueryMap[filterName] = selectedValue
+			}
+		}
+	}
+
+	return defaultQueryMap
+}
+
+func buildProviderCatalogURL(providerID string, page, limit int, queryMap map[string]string) string {
+	baseURL := strings.TrimRight(PROVIDER_METADATA_API_BASE_URL, "/")
+	catalogURL := fmt.Sprintf("%s/apis/browse/provider/%s?page=%d&limit=%d", baseURL, neturl.PathEscape(providerID), page, limit)
+	if len(queryMap) == 0 {
+		return catalogURL
+	}
+
+	queryParams := neturl.Values{}
+	for key, value := range queryMap {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		queryParams.Set(trimmedKey, trimmedValue)
+	}
+	encodedQuery := queryParams.Encode()
+	if encodedQuery == "" {
+		return catalogURL
+	}
+
+	return catalogURL + "&" + encodedQuery
+}
+
+func fetchPremiumProviderCatalogFromAPI(client *fasthttp.Client, providerID string, page, limit int, queryMap map[string]string, requestHeaders map[string]string) (PremiumProviderCatalogEnvelope, error) {
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     buildProviderCatalogURL(providerID, page, limit, queryMap),
+		Method:  "GET",
+		Headers: requestHeaders,
+	}
+
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil {
+		return PremiumProviderCatalogEnvelope{}, err
+	}
+	defer fasthttp.ReleaseResponse(resp)
+
+	var catalogResponse PremiumProviderCatalogEnvelope
+	if err := utils.ParseJSONResponse(resp, &catalogResponse); err != nil {
+		return PremiumProviderCatalogEnvelope{}, err
+	}
+
+	return catalogResponse, nil
+}
+
+func sameQueryMap(firstMap, secondMap map[string]string) bool {
+	if len(firstMap) != len(secondMap) {
+		return false
+	}
+	for key, value := range firstMap {
+		if secondMap[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func premiumCatalogCode(catalog PremiumProviderCatalogEnvelope) int {
+	if catalog.Code != 0 {
+		return catalog.Code
+	}
+	return catalog.CodeLower
+}
+
+func premiumCatalogMessage(catalog PremiumProviderCatalogEnvelope) string {
+	if strings.TrimSpace(catalog.Message) != "" {
+		return catalog.Message
+	}
+	return catalog.MessageLower
+}
+
+func premiumCatalogData(catalog PremiumProviderCatalogEnvelope) []map[string]interface{} {
+	if len(catalog.Data) > 0 {
+		return catalog.Data
+	}
+	return catalog.DataLower
+}
+
+func interfaceToString(value interface{}) string {
+	switch typedValue := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typedValue)
+	case json.Number:
+		return strings.TrimSpace(typedValue.String())
+	case float64:
+		if typedValue == float64(int64(typedValue)) {
+			return strconv.FormatInt(int64(typedValue), 10)
+		}
+		return strconv.FormatFloat(typedValue, 'f', -1, 64)
+	case float32:
+		floatValue := float64(typedValue)
+		if floatValue == float64(int64(floatValue)) {
+			return strconv.FormatInt(int64(floatValue), 10)
+		}
+		return strconv.FormatFloat(floatValue, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(typedValue)
+	case int8:
+		return strconv.FormatInt(int64(typedValue), 10)
+	case int16:
+		return strconv.FormatInt(int64(typedValue), 10)
+	case int32:
+		return strconv.FormatInt(int64(typedValue), 10)
+	case int64:
+		return strconv.FormatInt(typedValue, 10)
+	case uint:
+		return strconv.FormatUint(uint64(typedValue), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(typedValue), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(typedValue), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(typedValue), 10)
+	case uint64:
+		return strconv.FormatUint(typedValue, 10)
+	case bool:
+		return strconv.FormatBool(typedValue)
+	default:
+		stringValue := strings.TrimSpace(fmt.Sprint(typedValue))
+		if stringValue == "<nil>" {
+			return ""
+		}
+		return stringValue
+	}
+}
+
+func stringByPath(rawItem map[string]interface{}, path string) string {
+	pathParts := strings.Split(path, ".")
+	var currentValue interface{} = rawItem
+
+	for _, pathPart := range pathParts {
+		currentMap, ok := currentValue.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		nextValue, exists := currentMap[pathPart]
+		if !exists {
+			return ""
+		}
+		currentValue = nextValue
+	}
+
+	return interfaceToString(currentValue)
+}
+
+func firstStringByPaths(rawItem map[string]interface{}, paths ...string) string {
+	for _, path := range paths {
+		pathValue := stringByPath(rawItem, path)
+		if pathValue != "" {
+			return pathValue
+		}
+	}
+	return ""
+}
+
+func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerID string) []PremiumProviderCatalogItem {
+	catalogItems := make([]PremiumProviderCatalogItem, 0, len(rawItems))
+	seenItems := make(map[string]struct{})
+	normalizedProviderID := strings.ToUpper(strings.TrimSpace(providerID))
+
+	for _, rawItem := range rawItems {
+		channelID := firstStringByPaths(rawItem, "channel_id", "channelId", "metadata.channel.channel_id", "metadata.channel.channelId")
+		contentID := firstStringByPaths(rawItem, "content_id", "contentId", "metadata.content.content_id", "metadata.content.contentId")
+		subCategoryID := firstStringByPaths(rawItem, "sub_category_id", "subCategoryId", "metadata.content.sub_category_id", "metadata.content.subCategoryId")
+		streamType := strings.ToLower(firstStringByPaths(rawItem, "stream_type", "streamType"))
+
+		if streamType == "" {
+			if channelID != "" {
+				streamType = "provider"
+			} else if contentID != "" {
+				streamType = "vod"
+			}
+		}
+
+		if channelID == "" && contentID == "" {
+			continue
+		}
+		if streamType != "provider" && streamType != "vod" {
+			continue
+		}
+
+		itemID := firstStringByPaths(rawItem, "id", "ID", "content_id", "contentId", "channel_id", "channelId", "metadata.content.content_id", "metadata.channel.channel_id")
+		if itemID == "" {
+			if streamType == "provider" {
+				itemID = channelID
+			} else {
+				itemID = contentID
+			}
+		}
+		if itemID == "" {
+			continue
+		}
+
+		dedupeKey := streamType + ":" + itemID
+		if _, exists := seenItems[dedupeKey]; exists {
+			continue
+		}
+		seenItems[dedupeKey] = struct{}{}
+
+		title := firstStringByPaths(rawItem,
+			"channel_name",
+			"name",
+			"title",
+			"display_name",
+			"show_name",
+			"metadata.channel.channel_name",
+			"metadata.content.name",
+			"metadata.content.title",
+		)
+		if title == "" {
+			title = "Premium stream"
+		}
+
+		catalogItems = append(catalogItems, PremiumProviderCatalogItem{
+			ID:            itemID,
+			Title:         title,
+			Subtitle:      firstStringByPaths(rawItem, "genre", "category", "language", "type", "metadata.content.genre", "metadata.channel.language"),
+			Description:   firstStringByPaths(rawItem, "description", "short_description", "metadata.content.description"),
+			ImageURL:      firstStringByPaths(rawItem, "logoUrl", "logo", "image", "thumbnail", "poster", "poster_url", "metadata.channel.logoUrl", "metadata.content.thumbnail", "metadata.content.poster", "metadata.content.image"),
+			StreamType:    streamType,
+			ProviderID:    normalizedProviderID,
+			ChannelID:     channelID,
+			ContentID:     contentID,
+			SubCategoryID: subCategoryID,
+		})
+	}
+
+	return catalogItems
+}
+
+// PremiumProviderCatalog fetches provider catalog items available for a premium provider.
+func PremiumProviderCatalog(providerIdentifier string, page, limit int) (PremiumProviderCatalogResult, error) {
+	result := PremiumProviderCatalogResult{
+		Result: make([]PremiumProviderCatalogItem, 0),
+	}
+
+	if page < 0 {
+		page = 0
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	if store.KVS == nil {
+		return result, errors.New("not logged in")
+	}
+
+	credentials, err := utils.GetJIOTVCredentials()
+	if err != nil {
+		return result, err
+	}
+	if credentials == nil || credentials.AccessToken == "" {
+		return result, errors.New("missing access token")
+	}
+
+	providerID := resolvePremiumProviderID(providerIdentifier)
+	if providerID == "" {
+		providerID = strings.ToUpper(strings.TrimSpace(providerIdentifier))
+	}
+	if providerID == "" {
+		return result, errors.New("invalid provider identifier")
+	}
+	result.ProviderID = providerID
+
+	client := utils.GetRequestClient()
+	providerHeaders := buildProviderAPIHeaders(credentials)
+
+	filterResponse := PremiumProviderFilterResponse{}
+	filterResponse, filterErr := fetchPremiumProviderFilterFromAPI(client, providerID, providerHeaders)
+	if filterErr != nil {
+		utils.SafeLogf("Unable to fetch provider filters for %s: %v", providerID, filterErr)
+	}
+
+	queryNames := extractProviderQueryNames(filterResponse, providerID)
+	attemptQueryMaps := []map[string]string{
+		buildProviderQueryMap(queryNames, nil, "", ""),
+	}
+	fallbackQueryMap := buildProviderDefaultQueryMap(filterResponse, providerID)
+	if len(fallbackQueryMap) > 0 && !sameQueryMap(fallbackQueryMap, attemptQueryMaps[0]) {
+		attemptQueryMaps = append(attemptQueryMaps, fallbackQueryMap)
+	}
+
+	var lastCatalogResponse PremiumProviderCatalogEnvelope
+	var hasCatalogResponse bool
+	var lastFetchErr error
+
+	for _, queryMap := range attemptQueryMaps {
+		catalogResponse, fetchErr := fetchPremiumProviderCatalogFromAPI(client, providerID, page, limit, queryMap, providerHeaders)
+		if fetchErr != nil {
+			lastFetchErr = fetchErr
+			continue
+		}
+
+		hasCatalogResponse = true
+		lastCatalogResponse = catalogResponse
+
+		catalogItems := mapPremiumProviderCatalogItems(premiumCatalogData(catalogResponse), providerID)
+		if len(catalogItems) == 0 {
+			continue
+		}
+
+		result.Code = premiumCatalogCode(catalogResponse)
+		result.Message = premiumCatalogMessage(catalogResponse)
+		result.Result = catalogItems
+		return result, nil
+	}
+
+	if hasCatalogResponse {
+		result.Code = premiumCatalogCode(lastCatalogResponse)
+		result.Message = premiumCatalogMessage(lastCatalogResponse)
+		result.Result = mapPremiumProviderCatalogItems(premiumCatalogData(lastCatalogResponse), providerID)
+		return result, nil
+	}
+	if lastFetchErr != nil {
+		return result, lastFetchErr
+	}
+
+	return result, nil
+}
+
+func appendHdneaToPlaybackResult(result *LiveURLOutput) {
+	if result == nil {
+		return
+	}
+
+	extractHdneaFromURL := func(streamURL string) string {
+		if streamURL == "" {
+			return ""
+		}
+		index := strings.Index(streamURL, "hdnea=")
+		if index == -1 {
+			return ""
+		}
+		token := streamURL[index+len("hdnea="):]
+		if separatorIndex := strings.IndexByte(token, '&'); separatorIndex != -1 {
+			token = token[:separatorIndex]
+		}
+		return token
+	}
+
+	hdneaToken := extractHdneaFromURL(result.Bitrates.Auto)
+	if hdneaToken == "" {
+		hdneaToken = extractHdneaFromURL(result.Result)
+	}
+	if hdneaToken == "" {
+		hdneaToken = extractHdneaFromURL(result.Mpd.Result)
+	}
+	result.Hdnea = hdneaToken
+
+	if hdneaToken == "" {
+		return
+	}
+
+	appendHdnea := func(streamURL string) string {
+		if streamURL == "" || strings.Contains(streamURL, "hdnea=") {
+			return streamURL
+		}
+		separator := "?"
+		if strings.Contains(streamURL, "?") {
+			separator = "&"
+		}
+		return streamURL + separator + "hdnea=" + hdneaToken
+	}
+
+	result.Bitrates.Auto = appendHdnea(result.Bitrates.Auto)
+	result.Bitrates.High = appendHdnea(result.Bitrates.High)
+	result.Bitrates.Medium = appendHdnea(result.Bitrates.Medium)
+	result.Bitrates.Low = appendHdnea(result.Bitrates.Low)
+	result.Result = appendHdnea(result.Result)
+	result.Mpd.Result = appendHdnea(result.Mpd.Result)
+	result.Mpd.Key = appendHdnea(result.Mpd.Key)
+}
+
+// ResolvePlaybackURL picks the best playable URL from a playback response.
+func ResolvePlaybackURL(result *LiveURLOutput) string {
+	if result == nil {
+		return ""
+	}
+	if strings.TrimSpace(result.Bitrates.Auto) != "" {
+		return strings.TrimSpace(result.Bitrates.Auto)
+	}
+	if strings.TrimSpace(result.Result) != "" {
+		return strings.TrimSpace(result.Result)
+	}
+	if strings.TrimSpace(result.Mpd.Result) != "" {
+		return strings.TrimSpace(result.Mpd.Result)
+	}
+	return ""
+}
+
+// PremiumProviderPlayback resolves playback URL for a premium provider item.
+func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProviderPlayRequest) (*LiveURLOutput, error) {
+	if store.KVS == nil {
+		return nil, errors.New("not logged in")
+	}
+
+	credentials, err := utils.GetJIOTVCredentials()
+	if err != nil {
+		return nil, err
+	}
+	if credentials == nil || credentials.AccessToken == "" {
+		return nil, errors.New("missing access token")
+	}
+
+	providerID := resolvePremiumProviderID(providerIdentifier)
+	if providerID == "" {
+		providerID = strings.ToUpper(strings.TrimSpace(providerIdentifier))
+	}
+	if providerID == "" {
+		return nil, errors.New("invalid provider identifier")
+	}
+
+	streamType := strings.ToLower(strings.TrimSpace(playRequest.StreamType))
+	channelID := strings.TrimSpace(playRequest.ChannelID)
+	contentID := strings.TrimSpace(playRequest.ContentID)
+	subCategoryID := strings.TrimSpace(playRequest.SubCategoryID)
+
+	if streamType == "" {
+		if channelID != "" {
+			streamType = "provider"
+		} else if contentID != "" {
+			streamType = "vod"
+		}
+	}
+
+	switch streamType {
+	case "provider":
+		if channelID == "" {
+			return nil, errors.New("channelId is required for provider playback")
+		}
+	case "vod":
+		if contentID == "" || subCategoryID == "" {
+			return nil, errors.New("contentId and subCategoryId are required for vod playback")
+		}
+	default:
+		return nil, fmt.Errorf("unsupported streamType: %s", streamType)
+	}
+
+	tv := New(credentials)
+	formData := fasthttp.AcquireArgs()
+	defer fasthttp.ReleaseArgs(formData)
+
+	formData.Add("stream_type", streamType)
+	formData.Add("begin", utils.GenerateCurrentTime())
+	formData.Add("srno", utils.GenerateDate())
+
+	if streamType == "provider" {
+		formData.Add("channel_id", channelID)
+		formData.Add("provider_id", providerID)
+	} else {
+		formData.Add("provider_id", providerID)
+		formData.Add("sub_category_id", subCategoryID)
+		formData.Add("content_id", contentID)
+	}
+
+	request := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(request)
+	for key, value := range tv.Headers {
+		request.Header.Set(key, value)
+	}
+	request.Header.Set(headers.AccessToken, tv.AccessToken)
+	request.SetRequestURI("https://" + JIOTV_API_DOMAIN + urls.PlaybackAPIPath)
+	request.Header.SetMethod("POST")
+	request.SetBody(formData.QueryString())
+
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+
+	if err := tv.Client.Do(request, response); err != nil {
+		return nil, err
+	}
+	if response.StatusCode() != fasthttp.StatusOK {
+		return nil, fmt.Errorf("request failed with status code: %d, body: %s", response.StatusCode(), response.Body())
+	}
+
+	var playbackResult LiveURLOutput
+	if err := json.Unmarshal(response.Body(), &playbackResult); err != nil {
+		return nil, err
+	}
+
+	appendHdneaToPlaybackResult(&playbackResult)
+	return &playbackResult, nil
+}
+
+func mergeChannels(primary, secondary []Channel) []Channel {
+	if len(primary) == 0 {
+		return secondary
+	}
+	if len(secondary) == 0 {
+		return primary
+	}
+
+	mergedChannels := make([]Channel, 0, len(primary)+len(secondary))
+	seen := make(map[string]struct{}, len(primary)+len(secondary))
+
+	getKey := func(channel Channel) string {
+		if channel.ID != "" {
+			return channel.ID
+		}
+		return strings.ToLower(strings.TrimSpace(channel.Name))
+	}
+
+	addChannel := func(channel Channel) {
+		key := getKey(channel)
+		if key == "" {
+			mergedChannels = append(mergedChannels, channel)
+			return
+		}
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		mergedChannels = append(mergedChannels, channel)
+	}
+
+	for _, channel := range primary {
+		addChannel(channel)
+	}
+	for _, channel := range secondary {
+		addChannel(channel)
+	}
+
+	return mergedChannels
+}
+
 // Channels fetch channels from JioTV API and merge with custom channels
 func Channels() (ChannelsResponse, error) {
 	// Create a fasthttp.Client
 	client := utils.GetRequestClient()
 
 	// Set up request headers
-	requestHeaders := map[string]string{
+	defaultHeaders := map[string]string{
 		headers.UserAgent:  headers.UserAgentOkHttp,
 		headers.Accept:     headers.AcceptJSON,
 		headers.DeviceType: headers.DeviceTypePhone,
@@ -431,7 +1420,8 @@ func Channels() (ChannelsResponse, error) {
 		"usertype":         "JIO",
 	}
 
-	channelAPIURL := CHANNELS_API_URL
+	var apiResponse ChannelsResponse
+	hasAuthCredentials := false
 
 	// Prefer account-aware channel listing when OTP credentials are available.
 	if store.KVS != nil {
@@ -439,48 +1429,35 @@ func Channels() (ChannelsResponse, error) {
 		if err != nil {
 			utils.SafeLogf("Unable to load credentials for authenticated channel list: %v", err)
 		} else if credentials != nil && credentials.AccessToken != "" && credentials.SSOToken != "" && credentials.CRM != "" {
-			requestHeaders[headers.AccessToken] = credentials.AccessToken
-			requestHeaders["ssotoken"] = credentials.SSOToken
-			requestHeaders["crmid"] = credentials.CRM
-			requestHeaders["subscriberId"] = credentials.CRM
-			requestHeaders["userId"] = credentials.CRM
-			requestHeaders["usertype"] = "tvYR7NSNn7rymo3F"
-			requestHeaders["usergroup"] = "tvYR7NSNn7rymo3F"
-			requestHeaders[headers.VersionCode] = headers.VersionCode389
-			requestHeaders["languageId"] = "6"
-			requestHeaders["isott"] = "false"
-			if credentials.UniqueID != "" {
-				requestHeaders["uniqueId"] = credentials.UniqueID
+			hasAuthCredentials = true
+			authHeaders := buildAuthenticatedHeaders(credentials)
+
+			apiResponse, err = fetchChannelsFromAPI(client, CHANNELS_AUTH_API_URL, authHeaders)
+			if err != nil {
+				utils.Log.Printf("Error fetching authenticated channels, retrying default endpoint: %v", err)
+			} else if len(apiResponse.Result) > 0 {
+				// Merge default endpoint results to avoid missing channels exposed by only one endpoint.
+				defaultResponse, fallbackErr := fetchChannelsFromAPI(client, CHANNELS_API_URL, defaultHeaders)
+				if fallbackErr != nil {
+					utils.Log.Printf("Error fetching fallback channels for merge: %v", fallbackErr)
+				} else {
+					apiResponse.Result = mergeChannels(apiResponse.Result, defaultResponse.Result)
+				}
 			}
-			channelAPIURL = CHANNELS_AUTH_API_URL
 		}
 	}
 
-	requestConfig := utils.HTTPRequestConfig{
-		URL:     channelAPIURL,
-		Method:  "GET",
-		Headers: requestHeaders,
-	}
-
-	// Make the HTTP request
-	resp, err := utils.MakeHTTPRequest(requestConfig, client)
-	if err != nil && channelAPIURL != CHANNELS_API_URL {
-		utils.Log.Printf("Error fetching authenticated channels, retrying default endpoint: %v", err)
-		requestConfig.URL = CHANNELS_API_URL
-		resp, err = utils.MakeHTTPRequest(requestConfig, client)
-	}
-	if err != nil {
-		utils.Log.Printf("Error fetching channels from JioTV API: %v", err)
-		return ChannelsResponse{}, err
-	}
-	defer fasthttp.ReleaseResponse(resp)
-
-	var apiResponse ChannelsResponse
-
-	// Parse JSON response
-	if err := utils.ParseJSONResponse(resp, &apiResponse); err != nil {
-		utils.Log.Printf("Error parsing channels API response: %v", err)
-		return ChannelsResponse{}, err
+	if len(apiResponse.Result) == 0 {
+		fallbackResponse, err := fetchChannelsFromAPI(client, CHANNELS_API_URL, defaultHeaders)
+		if err != nil {
+			if hasAuthCredentials {
+				utils.Log.Printf("Error fetching channels from both authenticated and default endpoints: %v", err)
+			} else {
+				utils.Log.Printf("Error fetching channels from JioTV API: %v", err)
+			}
+			return ChannelsResponse{}, err
+		}
+		apiResponse = fallbackResponse
 	}
 
 	// disable sony channels temporarily
