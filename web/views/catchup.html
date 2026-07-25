@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}} - Catchup</title>
+    <link href="/static/style.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    {{ template "styling" . }}
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content">
+    {{template "navbar" .}}
+
+    <main class="app-shell py-6 sm:py-8">
+      <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="section-eyebrow">Catchup</p>
+          <h1 class="section-heading mt-1.5">
+            {{.Channel}}
+            <span class="ml-1 text-base font-normal text-base-content/45">({{.CurrentDate}})</span>
+          </h1>
+        </div>
+        <div class="join">
+          {{if .ShowPrev}}
+          <a href="?offset={{.PrevOffset}}" class="join-item btn-glass h-10 min-h-0 rounded-xl px-4 text-sm"
+            >Previous Day</a
+          >
+          {{else}}
+          <button class="join-item btn-glass h-10 min-h-0 rounded-xl px-4 text-sm opacity-40 pointer-events-none">Previous Day</button>
+          {{end}}
+
+          <a href="?offset=0" class="join-item btn-glass h-10 min-h-0 rounded-xl px-4 text-sm">Today</a>
+
+          {{if .ShowNext}}
+          <a href="?offset={{.NextOffset}}" class="join-item btn-glass h-10 min-h-0 rounded-xl px-4 text-sm">Next Day</a>
+          {{else}}
+          <button class="join-item btn-glass h-10 min-h-0 rounded-xl px-4 text-sm opacity-40 pointer-events-none">Next Day</button>
+          {{end}}
+        </div>
+      </div>
+
+      {{if .Error}} {{if .LivePlayURL}}
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div
+          class="poster-card"
+        >
+          <figure class="relative h-48">
+            <img
+              src="https://jiotvimages.cdn.jio.com/dare_images/images/{{$.Channel}}.png"
+              alt="Watch Live"
+              class="w-full h-full object-cover"
+              onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+            />
+            <div
+              class="absolute inset-0 hidden items-center justify-center bg-base-200 text-base font-semibold"
+            >
+              {{$.Channel}}
+            </div>
+            <div
+              class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4"
+            >
+              <h2 class="card-title text-white text-sm">Watch Live</h2>
+            </div>
+          </figure>
+          <div class="card-body p-4">
+            <p class="text-sm line-clamp-2">
+              Catchup unavailable for this channel.
+            </p>
+            <div class="card-actions justify-end mt-4">
+              <a href="{{.LivePlayURL}}" class="btn-premium h-10 min-h-0 w-full rounded-xl text-sm font-semibold"
+                >Watch Live</a
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+      {{end}}
+      <div class="alert alert-error mt-6">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="stroke-current shrink-0 h-6 w-6"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span>{{.Error}}</span>
+      </div>
+      {{else}}
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {{if .Data}} {{ range .Data }}
+        <div
+          class="poster-card"
+        >
+          <figure class="relative h-48">
+            <img
+              src="https://jiotvimages.cdn.jio.com/dare_images/shows/{{.episodePoster}}"
+              alt="{{.showname}}"
+              class="w-full h-full object-cover"
+              onerror="const attempts = parseInt(this.dataset.onerrorAttempts || '0', 10); if (attempts < 3) { this.dataset.onerrorAttempts = attempts + 1; this.src = 'https://jiotvimages.cdn.jio.com/dare_images/images/{{$.Channel}}.png'; } else { this.style.display = 'none'; }"
+            />
+            <div
+              class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4"
+            >
+              <h2 class="card-title text-white text-sm">{{.showname}}</h2>
+            </div>
+          </figure>
+          <div class="card-body p-4">
+            <div
+              class="flex justify-between items-center text-xs text-gray-400 mb-2"
+            >
+              <span>{{.showtime}} - {{.endtime}}</span>
+            </div>
+            <p class="text-sm line-clamp-2">{{.description}}</p>
+            <div class="card-actions justify-end mt-4">
+              {{if .IsLive}}
+              <a
+                href="/play/{{$.Channel}}?live=true"
+                class="btn btn-accent btn-sm w-full"
+                >Watch Live</a
+              >
+              {{else}}
+              <a
+                href="/catchup/play/{{$.Channel}}?start={{.startEpoch}}&end={{.endEpoch}}&srno={{.srno}}&showname={{.showname | urlquery}}&description={{.description | urlquery}}&poster={{.episodePoster | urlquery}}&showtime={{.showtime | urlquery}}"
+                class="btn-premium h-10 min-h-0 w-full rounded-xl text-sm font-semibold"
+                >Watch Now</a
+              >
+              {{end}}
+            </div>
+          </div>
+        </div>
+        {{end}} {{else}}
+        <div class="col-span-full text-center py-10">
+          <h3 class="text-xl font-semibold">
+            No episodes found for this date.
+          </h3>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
+    </main>
+
+    <script src="/static/internal/utils.js"></script>
+    <script src="/static/internal/common.js"></script>
+    {{template "footer" .}}
+  </body>
+</html>

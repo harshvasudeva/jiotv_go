@@ -118,6 +118,12 @@
     @apply sticky top-0 z-50 border-b border-base-300/50 bg-base-200/70 backdrop-blur-2xl;
   }
 
+  /* Compact labelled switch used for the navbar's catchup and player-mode
+     toggles, styled to match the glass controls around it. */
+  .nav-toggle {
+    @apply hidden cursor-pointer select-none items-center gap-2 rounded-xl border border-base-300/60 bg-base-100/50 px-3 py-2 text-base-content/70 transition duration-200 hover:border-primary/50 hover:bg-base-100 sm:inline-flex;
+  }
+
   .brand-mark {
     @apply flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-elevated;
     background: linear-gradient(135deg, #f43f5e, #e11d48 45%, #9f1239);
