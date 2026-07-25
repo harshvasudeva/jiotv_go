@@ -60,6 +60,13 @@ function isCatchupEnabled() {
   const v = getLocalStorageItem("catchupMode", false);
   return !!v;
 }
+// A channel only has catchup if the API says so. Sending an unsupported
+// channel to /catchup/ yields programme links whose streams are refused
+// (HTTP 403 with an empty body), which surfaces in the player as an
+// unexplained "Format error". Cards without the flag stay on /play/.
+function supportsCatchup(card) {
+  return card && card.getAttribute("data-catchup-available") !== "false";
+}
 function applyCatchupToCards() {
   const cards = document.querySelectorAll("a.card[data-channel-id]");
   const params = getCurrentUrlParams();
@@ -67,12 +74,12 @@ function applyCatchupToCards() {
   params.delete("live");
   const qs = params.toString();
   const suffix = qs ? "?" + qs : "";
-  const base = isCatchupEnabled() ? "/catchup/" : "/play/";
+  const catchupEnabled = isCatchupEnabled();
   cards.forEach((card) => {
     const id = card && card.getAttribute("data-channel-id");
-    if (id) {
-      card.setAttribute("href", base + encodeURIComponent(id) + suffix);
-    }
+    if (!id) return;
+    const base = catchupEnabled && supportsCatchup(card) ? "/catchup/" : "/play/";
+    card.setAttribute("href", base + encodeURIComponent(id) + suffix);
   });
 }
 function styleCatchupCards() {
@@ -80,7 +87,10 @@ function styleCatchupCards() {
   const enabled = isCatchupEnabled();
   cards.forEach((card) => {
     if (!card) return;
-    if (enabled) {
+    // In catchup mode, mark channels that have no catchup so it is obvious
+    // they will still open the live stream.
+    card.classList.toggle("channel-card-no-catchup", enabled && !supportsCatchup(card));
+    if (enabled && supportsCatchup(card)) {
       card.classList.remove("border-primary");
       card.classList.add("border-warning");
     } else {

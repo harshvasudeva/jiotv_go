@@ -277,6 +277,27 @@
     display: none !important;
   }
 
+  /* Shown only while catchup mode is on, for channels that have no catchup and
+     will therefore still open the live stream. */
+  .channel-card-no-catchup .channel-logo,
+  .channel-card-no-catchup .channel-title {
+    @apply opacity-50;
+  }
+
+  .channel-card-no-catchup::before {
+    content: "LIVE ONLY";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 2;
+    padding: 0.15rem 0;
+    text-align: center;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    @apply bg-warning/15 text-warning;
+  }
+
   .favorite-btn {
     @apply absolute right-2 top-2 z-[2] grid h-8 w-8 place-items-center rounded-full border border-base-300/60 bg-base-200/80 text-base-content/70 backdrop-blur transition duration-200 hover:scale-110 hover:border-primary/50 hover:text-primary;
   }

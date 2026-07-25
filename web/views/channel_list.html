@@ -107,6 +107,7 @@
       href="/play/{{$channel.ID}}"
       class="channel-card card group{{if $channel.RequiresSubscription}} channel-card-locked{{end}}"
       data-channel-id="{{$channel.ID}}"
+      data-catchup-available="{{if $channel.IsCatchupAvailable}}true{{else}}false{{end}}"
       {{if $channel.RequiresSubscription}}data-requires-subscription="true"{{end}}
       tabindex="0"
     >

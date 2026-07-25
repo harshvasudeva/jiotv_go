@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	internalUtils "github.com/jiotv-go/jiotv_go/v3/internal/utils"
 	"github.com/jiotv-go/jiotv_go/v3/pkg/secureurl"
+	"github.com/jiotv-go/jiotv_go/v3/pkg/television"
 	pkgUtils "github.com/jiotv-go/jiotv_go/v3/pkg/utils"
 	"github.com/valyala/fasthttp"
 )
@@ -23,6 +24,23 @@ const (
 	epochThreshold  = 100000000000
 )
 
+// catchupSupport reports the channel's display name and whether the API marks
+// it as offering catchup. known is false when the channel list is unavailable
+// or the ID is absent from it, in which case callers should not block.
+func catchupSupport(channelID string) (name string, supported bool, known bool) {
+	channelList, err := television.Channels()
+	if err != nil {
+		pkgUtils.Log.Printf("Unable to check catchup availability for %s: %v", channelID, err)
+		return channelID, false, false
+	}
+	for _, channel := range channelList.Result {
+		if channel.ID == channelID {
+			return channel.Name, channel.IsCatchupAvailable, true
+		}
+	}
+	return channelID, false, false
+}
+
 func CatchupHandler(c *fiber.Ctx) error {
 	id := c.Params("id")
 	offsetStr := c.Query("offset", "0")
@@ -30,6 +48,18 @@ func CatchupHandler(c *fiber.Ctx) error {
 	if err != nil {
 		offset = 0
 		pkgUtils.Log.Printf("Invalid offset query parameter, defaulting to 0: %v", err)
+	}
+
+	// Channels without catchup still list programmes, but every stream request
+	// for them is refused with an empty 403, which reaches the player as an
+	// unexplained format error. Say so instead of offering dead links.
+	if channelName, supported, known := catchupSupport(id); known && !supported {
+		return c.Render("views/catchup", fiber.Map{
+			"Title":       Title,
+			"Error":       "Catchup is not available for " + channelName + ". This channel only offers a live stream.",
+			"Channel":     channelName,
+			"LivePlayURL": "/play/" + id + "?live=true",
+		})
 	}
 
 	epgData, err := getCatchupEPG(id, offset)
