@@ -781,12 +781,20 @@ func RenderHandler(c *fiber.Ctx) error {
 	// replacer replaces all the file names ending with .m3u8 and .ts with our own server URLs
 	// More info: https://golang.org/pkg/regexp/#Regexp.ReplaceAllFunc
 	replacer := func(match []byte) []byte {
+		// The pattern above deliberately consumes a trailing query string, so
+		// the extension has to be tested against the path alone. Testing the
+		// whole match leaves every catchup URI ("...m3u8?vbegin=...") falling
+		// through unrewritten, which breaks playback with a demuxer error.
+		path := match
+		if queryIndex := bytes.IndexByte(match, '?'); queryIndex != -1 {
+			path = match[:queryIndex]
+		}
 		switch {
-		case bytes.HasSuffix(match, []byte(".m3u8")):
+		case bytes.HasSuffix(path, []byte(".m3u8")):
 			return television.ReplaceM3U8(baseUrl, match, params, channel_id, c.Query("q"))
-		case bytes.HasSuffix(match, []byte(".ts")):
+		case bytes.HasSuffix(path, []byte(".ts")):
 			return television.ReplaceTS(baseUrl, match, params, channel_id)
-		case bytes.HasSuffix(match, []byte(".aac")):
+		case bytes.HasSuffix(path, []byte(".aac")):
 			return television.ReplaceAAC(baseUrl, match, params, channel_id)
 		default:
 			return match
