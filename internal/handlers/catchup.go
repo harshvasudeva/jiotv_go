@@ -139,9 +139,12 @@ func CatchupStreamHandler(c *fiber.Ctx) error {
 	}
 
 	redirectURL := fmt.Sprintf("/render.m3u8?auth=%s&channel_key_id=%s", codedUrl, id)
-	// Ensure we don't double-append hdnea if it's already in the URL
-	if catchupResult.Hdnea != "" && !strings.Contains(targetURL, "hdnea=") {
-		redirectURL += "&hdnea=" + catchupResult.Hdnea
+	// Only append the token when the target URL does not already carry one.
+	// The check must cover "__hdnea__=" as well: that is the spelling the
+	// catchup API actually returns, and it does not contain the substring
+	// "hdnea=", so a narrower check appends a second, conflicting token.
+	if catchupResult.Hdnea != "" && !strings.Contains(targetURL, "hdnea=") && !strings.Contains(targetURL, "__hdnea__=") {
+		redirectURL += "&hdnea=" + url.QueryEscape(catchupResult.Hdnea)
 	}
 	return c.Redirect(redirectURL, fiber.StatusFound)
 }

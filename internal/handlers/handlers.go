@@ -412,6 +412,20 @@ func refreshLiveResultIfNeeded(channelID string, liveResult *television.LiveURLO
 	return refreshedResult, nil
 }
 
+// hdneaCacheKey namespaces cached HDNEA tokens by stream kind. Live and catchup
+// URLs for the same channel are signed with different ACLs (catchup tokens are
+// scoped to a ".../Catchup_Fallback/*" path), so a token cached for one is
+// rejected with HTTP 400 when replayed against the other.
+func hdneaCacheKey(channelID, streamURL string) string {
+	if channelID == "" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(streamURL), "catchup") {
+		return channelID + "|catchup"
+	}
+	return channelID
+}
+
 func getCachedHDNEA(channelID string) string {
 	if channelID == "" {
 		return ""
@@ -620,8 +634,12 @@ func RenderHandler(c *fiber.Ctx) error {
 
 	decoded_url = toAbsoluteStreamURL(decoded_url, nil)
 
+	// Cache lookups are namespaced by stream kind: a live token replayed against
+	// a catchup URL is rejected, because their ACLs cover different paths.
+	hdneaKey := hdneaCacheKey(channel_id, decoded_url)
+
 	// Always prefer a freshly cached HDNEA token if available to prevent 403s on expired URL tokens
-	cachedHDNEA := getCachedHDNEA(channel_id)
+	cachedHDNEA := getCachedHDNEA(hdneaKey)
 	urlToken := extractHDNEAFromURL(decoded_url)
 
 	renderURL := decoded_url
@@ -641,7 +659,7 @@ func RenderHandler(c *fiber.Ctx) error {
 			sourceStr = "URL"
 		}
 		utils.Log.Printf("[DEBUG] Token selection - URL token: %s | Cached token: %s | Using: %s (source: %s)",
-			truncateToken(urlToken), truncateToken(getCachedHDNEA(channel_id)), truncateToken(cachedHDNEA), sourceStr)
+			truncateToken(urlToken), truncateToken(getCachedHDNEA(hdneaKey)), truncateToken(cachedHDNEA), sourceStr)
 	}
 	renderResult, statusCode, newHdnea := TV.Render(renderURL, cachedHDNEA)
 
@@ -652,7 +670,7 @@ func RenderHandler(c *fiber.Ctx) error {
 
 	// Always cache fresh token from response for fallback on next request
 	if newHdnea != "" {
-		setCachedHDNEA(channel_id, newHdnea)
+		setCachedHDNEA(hdneaKey, newHdnea)
 		cachedHDNEA = newHdnea
 	}
 
@@ -670,7 +688,7 @@ func RenderHandler(c *fiber.Ctx) error {
 		if channel_id != "" {
 			if refreshedLiveResult, refreshErr := refreshChannelToken(channel_id); refreshErr == nil && refreshedLiveResult != nil {
 				if freshToken := extractLiveResultHDNEA(refreshedLiveResult); freshToken != "" {
-					setCachedHDNEA(channel_id, freshToken)
+					setCachedHDNEA(hdneaKey, freshToken)
 					cachedHDNEA = freshToken
 				}
 
@@ -684,7 +702,7 @@ func RenderHandler(c *fiber.Ctx) error {
 				renderURL = stripHDNEAFromURL(decoded_url)
 				renderResult, statusCode, newHdnea = TV.Render(renderURL, cachedHDNEA)
 				if newHdnea != "" {
-					setCachedHDNEA(channel_id, newHdnea)
+					setCachedHDNEA(hdneaKey, newHdnea)
 					cachedHDNEA = newHdnea
 				}
 
@@ -713,7 +731,7 @@ func RenderHandler(c *fiber.Ctx) error {
 						renderURL = candidateURL
 						renderResult, statusCode, newHdnea = TV.Render(renderURL, cachedHDNEA)
 						if newHdnea != "" {
-							setCachedHDNEA(channel_id, newHdnea)
+							setCachedHDNEA(hdneaKey, newHdnea)
 							cachedHDNEA = newHdnea
 						}
 
