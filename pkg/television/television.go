@@ -30,6 +30,7 @@ const (
 	CHANNELS_API_URL               = urls.ChannelsAPIURL
 	CHANNELS_AUTH_API_URL          = urls.ChannelURL
 	PLANS_API_URL                  = urls.PlansAPIURL
+	ACTIVE_PLANS_API_URL           = urls.ActivePlansAPIURL
 	PROVIDER_CONFIG_API_BASE_URL   = urls.ProviderConfigAPIBaseURL
 	PROVIDER_METADATA_API_BASE_URL = urls.ProviderMetadataAPIBaseURL
 	// Error message for unsupported custom channels file formats
@@ -508,10 +509,35 @@ func fetchPlansFromAPI(client *fasthttp.Client, plansAPIURL string, requestHeade
 
 	var apiResponse PlansResponse
 	if err := utils.ParseJSONResponse(resp, &apiResponse); err != nil {
+		utils.SafeLogf("Plans API returned unparseable body (status %d): %s", resp.StatusCode(), truncateForLog(resp.Body(), 600))
 		return PlansResponse{}, err
 	}
 
+	if len(apiResponse.PackageInfo) == 0 && len(apiResponse.Result.Plans) == 0 {
+		utils.SafeLogf("Plans API returned no packages (status %d): %s", resp.StatusCode(), truncateForLog(resp.Body(), 600))
+	}
+
 	return apiResponse, nil
+}
+
+// describePremiumProviders renders providers as "id=name" pairs for diagnostics.
+func describePremiumProviders(premiumProviders []PremiumProvider) string {
+	if len(premiumProviders) == 0 {
+		return "none"
+	}
+	descriptions := make([]string, 0, len(premiumProviders))
+	for _, provider := range premiumProviders {
+		descriptions = append(descriptions, provider.ProviderID+"="+provider.Name)
+	}
+	return strings.Join(descriptions, ", ")
+}
+
+// truncateForLog renders a response body for diagnostics, capped at maxLen bytes.
+func truncateForLog(body []byte, maxLen int) string {
+	if len(body) <= maxLen {
+		return string(body)
+	}
+	return string(body[:maxLen]) + "...(truncated)"
 }
 
 func buildAuthenticatedHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
@@ -520,7 +546,7 @@ func buildAuthenticatedHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]
 		headers.Accept:      headers.AcceptJSON,
 		headers.DeviceType:  headers.DeviceTypePhone,
 		headers.OS:          headers.OSAndroid,
-		headers.VersionCode: headers.VersionCode401,
+		headers.VersionCode: headers.VersionCode413,
 		"appkey":            "NzNiMDhlYzQyNjJm",
 		"lbcookie":          "1",
 		"usertype":          "JIO",
@@ -569,51 +595,243 @@ func resolvePremiumProvider(providerID, providerName string) (premiumProviderLin
 	return premiumProviderLink{}, false
 }
 
+// collectPlanProviders converts provider entries from the plans API into
+// PremiumProvider values, appending to premiumProviders and tracking duplicates
+// in seenProviders. Every provider returned by the API is kept: the API only
+// lists providers the account is actually entitled to, so filtering against a
+// local allowlist would drop legitimate providers. The local registry is used
+// only to enrich entries with an external URL where one is known.
+func collectPlanProviders(planProviders []PlanProvider, premiumProviders *[]PremiumProvider, seenProviders map[string]struct{}) {
+	for _, provider := range planProviders {
+		providerID := strings.ToUpper(provider.resolvedID())
+		providerName := provider.resolvedName()
+
+		providerKey := providerID
+		if providerKey == "" {
+			providerKey = strings.ToLower(providerName)
+		}
+		if providerKey == "" {
+			continue
+		}
+		if _, alreadySeen := seenProviders[providerKey]; alreadySeen {
+			continue
+		}
+		seenProviders[providerKey] = struct{}{}
+
+		providerLink, _ := resolvePremiumProvider(providerID, providerName)
+
+		displayName := providerName
+		if displayName == "" {
+			displayName = providerLink.DisplayName
+		}
+		if displayName == "" {
+			displayName = providerID
+		}
+		canonicalProviderID := providerID
+		if canonicalProviderID == "" {
+			canonicalProviderID = providerLink.ProviderID
+		}
+
+		// provider is the plans API's taxonomy name (e.g. "Fancode") and matches
+		// the provider directory exactly, so it is tried before the display name.
+		matchNames := make([]string, 0, 2)
+		if taxonomyName := strings.TrimSpace(provider.Provider); taxonomyName != "" {
+			matchNames = append(matchNames, taxonomyName)
+		}
+		if displayName != "" {
+			matchNames = append(matchNames, displayName)
+		}
+
+		*premiumProviders = append(*premiumProviders, PremiumProvider{
+			ID:         providerKey,
+			ProviderID: canonicalProviderID,
+			Name:       displayName,
+			URL:        providerLink.URL,
+			Image:      strings.TrimSpace(provider.Image),
+			matchNames: matchNames,
+		})
+	}
+}
+
+// fetchProviderDirectory retrieves the full provider config document and maps
+// each provider's short name (lowercased, e.g. "fancode") to the content
+// provider ID used by the catalog API (e.g. "200169"). Requesting the document
+// without a providerId returns every provider.
+func fetchProviderDirectory(client *fasthttp.Client, requestHeaders map[string]string) (map[string]string, error) {
+	requestConfig := utils.HTTPRequestConfig{
+		URL:     strings.TrimRight(PROVIDER_CONFIG_API_BASE_URL, "/") + "/cnf/provider",
+		Method:  "GET",
+		Headers: requestHeaders,
+	}
+
+	resp, err := utils.MakeHTTPRequest(requestConfig, client)
+	if err != nil {
+		return nil, err
+	}
+	defer fasthttp.ReleaseResponse(resp)
+
+	var directoryResponse PremiumProviderFilterResponse
+	if err := utils.ParseJSONResponse(resp, &directoryResponse); err != nil {
+		return nil, err
+	}
+
+	providerDirectory := make(map[string]string)
+	for _, providerEntry := range directoryResponse.Data.Provider {
+		providerName := normalizeProviderName(providerEntry.Provider)
+		providerID := strings.TrimSpace(providerEntry.ProviderID)
+		if providerName == "" || providerID == "" {
+			continue
+		}
+		// The directory lists some providers more than once (for example
+		// several "Simca" entries); the first entry with an ID wins.
+		if _, exists := providerDirectory[providerName]; !exists {
+			providerDirectory[providerName] = providerID
+		}
+	}
+
+	return providerDirectory, nil
+}
+
+// resolveContentProviderIDs replaces each provider's entitlement ID with the
+// content provider ID used by the catalog API, matching on provider name.
+// Providers with no match keep their entitlement ID.
+func resolveContentProviderIDs(premiumProviders []PremiumProvider, providerDirectory map[string]string) {
+	if len(providerDirectory) == 0 {
+		return
+	}
+
+	for index := range premiumProviders {
+		provider := &premiumProviders[index]
+		names := provider.matchNames
+		if len(names) == 0 {
+			names = []string{provider.Name}
+		}
+		if contentProviderID, matched := lookupContentProviderID(names, providerDirectory); matched {
+			provider.ProviderID = contentProviderID
+		}
+	}
+}
+
+// lookupContentProviderID resolves the first of names that can be matched
+// against the provider directory. Exact matches on every name are preferred
+// over a substring match on any of them.
+func lookupContentProviderID(names []string, providerDirectory map[string]string) (string, bool) {
+	candidates := make([]string, 0, len(names)*2)
+	for _, name := range names {
+		candidates = append(candidates, providerNameCandidates(name)...)
+	}
+
+	for _, candidate := range candidates {
+		if contentProviderID, exists := providerDirectory[candidate]; exists {
+			return contentProviderID, true
+		}
+	}
+
+	// Fall back to containment, which covers names carrying an extra qualifier
+	// ("JioCinema Premium" vs "JioCinema", "LionsgatePlay" vs "LionsGate").
+	// The length guard keeps very short names from matching too eagerly, and the
+	// longest directory name wins so the match is both specific and stable
+	// regardless of map iteration order.
+	for _, candidate := range candidates {
+		if len(candidate) < 4 {
+			continue
+		}
+		bestName := ""
+		bestProviderID := ""
+		for directoryName, contentProviderID := range providerDirectory {
+			if len(directoryName) < 4 {
+				continue
+			}
+			if !strings.Contains(candidate, directoryName) && !strings.Contains(directoryName, candidate) {
+				continue
+			}
+			if len(directoryName) > len(bestName) || (len(directoryName) == len(bestName) && directoryName < bestName) {
+				bestName = directoryName
+				bestProviderID = contentProviderID
+			}
+		}
+		if bestProviderID != "" {
+			return bestProviderID, true
+		}
+	}
+
+	return "", false
+}
+
+// providerNameCandidates returns normalised lookup keys for a provider name.
+// Plan names such as "Fancode (Via JioTV)" must match the directory's "Fancode",
+// and "Discovery+" must match "DiscoveryPlus".
+func providerNameCandidates(providerName string) []string {
+	trimmed := strings.TrimSpace(providerName)
+	if trimmed == "" {
+		return nil
+	}
+
+	variants := []string{trimmed}
+	// Drop a trailing qualifier such as "(Via JioTV)" or "(sports excluded)".
+	if base, _, found := strings.Cut(trimmed, "("); found {
+		if baseName := strings.TrimSpace(base); baseName != "" {
+			variants = append(variants, baseName)
+		}
+	}
+
+	candidates := make([]string, 0, len(variants))
+	seen := make(map[string]struct{}, len(variants))
+	for _, variant := range variants {
+		normalized := normalizeProviderName(variant)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		candidates = append(candidates, normalized)
+	}
+	return candidates
+}
+
+// normalizeProviderName lowercases a provider name and strips everything that
+// varies between the plans API and the provider directory: spacing, separators
+// and the "+" suffix style ("Discovery+" and "DiscoveryPlus" both become
+// "discoveryplus").
+func normalizeProviderName(providerName string) string {
+	lowered := strings.ToLower(strings.TrimSpace(providerName))
+	lowered = strings.ReplaceAll(lowered, "+", "plus")
+
+	var builder strings.Builder
+	builder.Grow(len(lowered))
+	for _, character := range lowered {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			builder.WriteRune(character)
+		}
+	}
+	return builder.String()
+}
+
 func extractPremiumProviders(plansResponse PlansResponse) []PremiumProvider {
 	premiumProviders := make([]PremiumProvider, 0)
 	seenProviders := make(map[string]struct{})
 
-	for _, plan := range plansResponse.Result.Plans {
-		for _, provider := range plan.Providers {
-			providerID := strings.ToUpper(strings.TrimSpace(provider.ProviderID))
-			providerName := strings.TrimSpace(provider.ProviderName)
+	// Prefer plans flagged active on the account.
+	for _, plan := range plansResponse.PackageInfo {
+		if !plan.IsActive {
+			continue
+		}
+		collectPlanProviders(plan.PackageDetail.Providers, &premiumProviders, seenProviders)
+	}
 
-			providerLink, isPremiumProvider := resolvePremiumProvider(providerID, providerName)
-			if !isPremiumProvider {
-				continue
-			}
+	// Some responses omit "isactive"; fall back to every listed package.
+	if len(premiumProviders) == 0 {
+		for _, plan := range plansResponse.PackageInfo {
+			collectPlanProviders(plan.PackageDetail.Providers, &premiumProviders, seenProviders)
+		}
+	}
 
-			providerKey := providerID
-			if providerKey == "" {
-				providerKey = strings.ToLower(providerName)
-			}
-			if providerKey == "" {
-				continue
-			}
-			if _, alreadySeen := seenProviders[providerKey]; alreadySeen {
-				continue
-			}
-			seenProviders[providerKey] = struct{}{}
-
-			displayName := providerName
-			if displayName == "" {
-				displayName = providerLink.DisplayName
-			}
-			canonicalProviderID := providerID
-			if canonicalProviderID == "" {
-				canonicalProviderID = providerLink.ProviderID
-			}
-			providerResponseID := providerID
-			if providerResponseID == "" {
-				providerResponseID = providerKey
-			}
-
-			premiumProviders = append(premiumProviders, PremiumProvider{
-				ID:         providerResponseID,
-				ProviderID: canonicalProviderID,
-				Name:       displayName,
-				URL:        providerLink.URL,
-			})
+	// Older nested response shape.
+	if len(premiumProviders) == 0 {
+		for _, plan := range plansResponse.Result.Plans {
+			collectPlanProviders(plan.Providers, &premiumProviders, seenProviders)
 		}
 	}
 
@@ -700,20 +918,49 @@ func PremiumProviders() ([]PremiumProvider, error) {
 		return []PremiumProvider{}, nil
 	}
 
-	if credentials.SSOToken != "" && credentials.CRM != "" {
-		client := utils.GetRequestClient()
-		plansResponse, err := fetchPlansFromAPI(client, PLANS_API_URL, buildAuthenticatedHeaders(credentials))
-		if err != nil {
-			utils.SafeLogf("Unable to fetch premium providers from plans API: %v", err)
-		} else {
-			plansBasedProviders := extractPremiumProviders(plansResponse)
-			if len(plansBasedProviders) > 0 {
-				return plansBasedProviders, nil
-			}
-		}
+	client := utils.GetRequestClient()
+
+	// The active plans API lists what the account is actually subscribed to and
+	// is the authoritative source for entitlements. The packs API is only a
+	// catalogue of purchasable plans, so it is tried second.
+	plansAPIAttempts := []struct {
+		name           string
+		url            string
+		requestHeaders map[string]string
+	}{
+		{"active plans", ACTIVE_PLANS_API_URL, buildActivePlansHeaders(credentials)},
+		{"subscription packs", PLANS_API_URL, buildPlansAPIHeaders(credentials)},
 	}
 
-	return extractPremiumProvidersFromAccessToken(credentials.AccessToken), nil
+	for _, attempt := range plansAPIAttempts {
+		plansResponse, err := fetchPlansFromAPI(client, attempt.url, attempt.requestHeaders)
+		if err != nil {
+			utils.SafeLogf("Unable to fetch premium providers from %s API: %v", attempt.name, err)
+			continue
+		}
+
+		plansBasedProviders := extractPremiumProviders(plansResponse)
+		if len(plansBasedProviders) == 0 {
+			utils.SafeLogf("%s API returned %d package(s), no premium providers", attempt.name, len(plansResponse.PackageInfo))
+			continue
+		}
+
+		// Plans return entitlement IDs (Z0177); the catalog needs content
+		// provider IDs (200169), so map them via the provider directory.
+		providerDirectory, directoryErr := fetchProviderDirectory(client, buildProviderConfigHeaders(credentials))
+		if directoryErr != nil {
+			utils.SafeLogf("Unable to fetch provider directory: %v", directoryErr)
+		} else {
+			resolveContentProviderIDs(plansBasedProviders, providerDirectory)
+		}
+
+		utils.SafeLogf("%s API returned %d package(s), %d premium provider(s): %s", attempt.name, len(plansResponse.PackageInfo), len(plansBasedProviders), describePremiumProviders(plansBasedProviders))
+		return plansBasedProviders, nil
+	}
+
+	tokenBasedProviders := extractPremiumProvidersFromAccessToken(credentials.AccessToken)
+	utils.SafeLogf("Falling back to access token plan IDs: %d premium provider(s)", len(tokenBasedProviders))
+	return tokenBasedProviders, nil
 }
 
 func resolvePremiumProviderID(providerIdentifier string) string {
@@ -746,15 +993,56 @@ func resolvePremiumProviderID(providerIdentifier string) string {
 	return ""
 }
 
-func buildProviderAPIHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+// buildPlansAPIHeaders builds headers for the subscription packs API
+// (v2.1/plans/get), which rejects requests without X-Platform.
+func buildPlansAPIHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+	plansHeaders := buildAuthenticatedHeaders(credentials)
+	plansHeaders[headers.XPlatform] = headers.PlatformAndroidMobile
+	return plansHeaders
+}
+
+// buildActivePlansHeaders builds headers for the active plans API
+// (userservice/apis/v1/plans), which returns the plans actually subscribed on
+// the account. This endpoint takes a smaller header set than the packs API.
+func buildActivePlansHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+	activePlansHeaders := map[string]string{
+		headers.UserAgent:   headers.UserAgentOkHttp,
+		headers.Accept:      headers.AcceptJSON,
+		headers.DeviceType:  headers.DeviceTypePhone,
+		headers.OS:          headers.OSAndroid,
+		headers.VersionCode: headers.VersionCode413,
+		"Connection":        "close",
+	}
+	if credentials == nil {
+		return activePlansHeaders
+	}
+	if credentials.AccessToken != "" {
+		activePlansHeaders[headers.AccessToken] = credentials.AccessToken
+	}
+	if credentials.UniqueID != "" {
+		activePlansHeaders["uniqueId"] = credentials.UniqueID
+	}
+	return activePlansHeaders
+}
+
+// buildProviderConfigHeaders builds headers for the provider config API
+// (/cnf/provider). This endpoint authenticates with X-AccessToken and expects
+// X-VersionCode/X-Platform, unlike the rest of the provider APIs.
+func buildProviderConfigHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
 	providerHeaders := buildAuthenticatedHeaders(credentials)
 	if credentials != nil && credentials.AccessToken != "" {
 		providerHeaders[headers.XAccessToken] = credentials.AccessToken
 	}
 	providerHeaders[headers.XVersionCode] = "4.0"
 	providerHeaders[headers.XPlatform] = headers.OSAndroid
-	providerHeaders["platform"] = headers.OSAndroid
 	return providerHeaders
+}
+
+// buildProviderCatalogHeaders builds headers for the provider metadata API
+// (/apis/browse/provider/{id}). This endpoint authenticates with the plain
+// accessToken header and must not receive the X-AccessToken variant.
+func buildProviderCatalogHeaders(credentials *utils.JIOTV_CREDENTIALS) map[string]string {
+	return buildAuthenticatedHeaders(credentials)
 }
 
 func fetchPremiumProviderFilterFromAPI(client *fasthttp.Client, providerID string, requestHeaders map[string]string) (PremiumProviderFilterResponse, error) {
@@ -852,16 +1140,12 @@ func buildProviderDefaultQueryMap(filterResponse PremiumProviderFilterResponse, 
 				continue
 			}
 
+			// "All" is a UI-only sentinel; sending it makes the catalog API
+			// reject the request with "Parameter Missing/Bad Request".
 			selectedValue := ""
 			for _, filterValue := range filterItem.Values {
 				key := strings.TrimSpace(filterValue.Key)
-				if key == "" {
-					continue
-				}
-				if strings.EqualFold(key, "all") {
-					if selectedValue == "" {
-						selectedValue = key
-					}
+				if key == "" || strings.EqualFold(key, "all") {
 					continue
 				}
 				selectedValue = key
@@ -996,6 +1280,10 @@ func interfaceToString(value interface{}) string {
 		return strconv.FormatUint(typedValue, 10)
 	case bool:
 		return strconv.FormatBool(typedValue)
+	case map[string]interface{}, []interface{}:
+		// Composite values have no useful string form; callers should address
+		// the nested field directly via a dotted path.
+		return ""
 	default:
 		stringValue := strings.TrimSpace(fmt.Sprint(typedValue))
 		if stringValue == "<nil>" {
@@ -1034,6 +1322,16 @@ func firstStringByPaths(rawItem map[string]interface{}, paths ...string) string 
 	return ""
 }
 
+// absoluteImageURL resolves catalog artwork paths, which the API returns
+// relative to the JioTV image host.
+func absoluteImageURL(imagePath string) string {
+	trimmedPath := strings.TrimSpace(imagePath)
+	if trimmedPath == "" || strings.HasPrefix(trimmedPath, "http://") || strings.HasPrefix(trimmedPath, "https://") {
+		return trimmedPath
+	}
+	return urls.ImageBaseURL + strings.TrimPrefix(trimmedPath, "/")
+}
+
 func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerID string) []PremiumProviderCatalogItem {
 	catalogItems := make([]PremiumProviderCatalogItem, 0, len(rawItems))
 	seenItems := make(map[string]struct{})
@@ -1044,6 +1342,19 @@ func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerI
 		contentID := firstStringByPaths(rawItem, "content_id", "contentId", "metadata.content.content_id", "metadata.content.contentId")
 		subCategoryID := firstStringByPaths(rawItem, "sub_category_id", "subCategoryId", "metadata.content.sub_category_id", "metadata.content.subCategoryId")
 		streamType := strings.ToLower(firstStringByPaths(rawItem, "stream_type", "streamType"))
+		businessType := strings.ToLower(firstStringByPaths(rawItem, "business_type", "businessType"))
+
+		// In provider catalogs metadata.channel.channel_id is the provider ID
+		// itself and is identical for every item, so entries are keyed and
+		// played by content_id instead. business_type is not always populated,
+		// so also treat a channel ID equal to the provider ID as the sentinel.
+		// A populated sub_category_id means a genuine VOD item, which keeps the
+		// provider_id/sub_category_id/content_id playback path instead.
+		isProviderScopedChannel := channelID != "" && normalizedProviderID != "" && strings.EqualFold(channelID, normalizedProviderID)
+		if contentID != "" && subCategoryID == "" && (businessType == "svod" || businessType == "avod" || isProviderScopedChannel) {
+			channelID = contentID
+			streamType = "provider"
+		}
 
 		if streamType == "" {
 			if channelID != "" {
@@ -1078,15 +1389,19 @@ func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerI
 		}
 		seenItems[dedupeKey] = struct{}{}
 
+		// content_title first: in provider catalogs channel_name is the
+		// provider name and identical for every item.
 		title := firstStringByPaths(rawItem,
-			"channel_name",
+			"content_title",
 			"name",
 			"title",
 			"display_name",
 			"show_name",
-			"metadata.channel.channel_name",
+			"metadata.parent.show_name",
 			"metadata.content.name",
 			"metadata.content.title",
+			"channel_name",
+			"metadata.channel.channel_name",
 		)
 		if title == "" {
 			title = "Premium stream"
@@ -1096,8 +1411,8 @@ func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerI
 			ID:            itemID,
 			Title:         title,
 			Subtitle:      firstStringByPaths(rawItem, "genre", "category", "language", "type", "metadata.content.genre", "metadata.channel.language"),
-			Description:   firstStringByPaths(rawItem, "description", "short_description", "metadata.content.description"),
-			ImageURL:      firstStringByPaths(rawItem, "logoUrl", "logo", "image", "thumbnail", "poster", "poster_url", "metadata.channel.logoUrl", "metadata.content.thumbnail", "metadata.content.poster", "metadata.content.image"),
+			Description:   firstStringByPaths(rawItem, "content_description", "description", "short_description", "metadata.content.description"),
+			ImageURL:      absoluteImageURL(firstStringByPaths(rawItem, "logoUrl", "image.portrait", "image.list", "image.square", "image.cover", "logo", "thumbnail", "poster", "poster_url", "metadata.channel.logo.portrait", "metadata.channel.logoUrl", "metadata.content.thumbnail", "metadata.content.poster")),
 			StreamType:    streamType,
 			ProviderID:    normalizedProviderID,
 			ChannelID:     channelID,
@@ -1144,10 +1459,11 @@ func PremiumProviderCatalog(providerIdentifier string, page, limit int) (Premium
 	result.ProviderID = providerID
 
 	client := utils.GetRequestClient()
-	providerHeaders := buildProviderAPIHeaders(credentials)
+	configHeaders := buildProviderConfigHeaders(credentials)
+	catalogHeaders := buildProviderCatalogHeaders(credentials)
 
 	filterResponse := PremiumProviderFilterResponse{}
-	filterResponse, filterErr := fetchPremiumProviderFilterFromAPI(client, providerID, providerHeaders)
+	filterResponse, filterErr := fetchPremiumProviderFilterFromAPI(client, providerID, configHeaders)
 	if filterErr != nil {
 		utils.SafeLogf("Unable to fetch provider filters for %s: %v", providerID, filterErr)
 	}
@@ -1163,12 +1479,16 @@ func PremiumProviderCatalog(providerIdentifier string, page, limit int) (Premium
 
 	var lastCatalogResponse PremiumProviderCatalogEnvelope
 	var hasCatalogResponse bool
-	var lastFetchErr error
+	var firstFetchErr error
 
 	for _, queryMap := range attemptQueryMaps {
-		catalogResponse, fetchErr := fetchPremiumProviderCatalogFromAPI(client, providerID, page, limit, queryMap, providerHeaders)
+		catalogResponse, fetchErr := fetchPremiumProviderCatalogFromAPI(client, providerID, page, limit, queryMap, catalogHeaders)
 		if fetchErr != nil {
-			lastFetchErr = fetchErr
+			// The unfiltered attempt comes first and gives the most accurate
+			// diagnosis, so keep its error rather than a later one.
+			if firstFetchErr == nil {
+				firstFetchErr = fetchErr
+			}
 			continue
 		}
 
@@ -1192,8 +1512,15 @@ func PremiumProviderCatalog(providerIdentifier string, page, limit int) (Premium
 		result.Result = mapPremiumProviderCatalogItems(premiumCatalogData(lastCatalogResponse), providerID)
 		return result, nil
 	}
-	if lastFetchErr != nil {
-		return result, lastFetchErr
+	if firstFetchErr != nil {
+		// "Page out of bounds" means the provider simply has nothing to list for
+		// this account, which is an empty catalog rather than a failure.
+		if strings.Contains(strings.ToLower(firstFetchErr.Error()), "page out of bounds") {
+			result.Code = 204
+			result.Message = "No content available from this provider for your account"
+			return result, nil
+		}
+		return result, firstFetchErr
 	}
 
 	return result, nil
@@ -1263,11 +1590,19 @@ func ResolvePlaybackURL(result *LiveURLOutput) string {
 	if strings.TrimSpace(result.Result) != "" {
 		return strings.TrimSpace(result.Result)
 	}
+	// Premium provider VOD returns a plain HLS stream nested under "m3u8".
+	if strings.TrimSpace(result.M3u8.Auto) != "" {
+		return strings.TrimSpace(result.M3u8.Auto)
+	}
 	if strings.TrimSpace(result.Mpd.Result) != "" {
 		return strings.TrimSpace(result.Mpd.Result)
 	}
 	return ""
 }
+
+// ErrPremiumNotSubscribed is returned when the account may browse a provider's
+// catalog but is not entitled to play its content.
+var ErrPremiumNotSubscribed = errors.New("your account is not subscribed to this premium provider")
 
 // PremiumProviderPlayback resolves playback URL for a premium provider item.
 func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProviderPlayRequest) (*LiveURLOutput, error) {
@@ -1326,8 +1661,9 @@ func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProvi
 	formData.Add("srno", utils.GenerateDate())
 
 	if streamType == "provider" {
+		// The app posts only stream_type and channel_id for provider streams;
+		// adding provider_id makes the request fail.
 		formData.Add("channel_id", channelID)
-		formData.Add("provider_id", providerID)
 	} else {
 		formData.Add("provider_id", providerID)
 		formData.Add("sub_category_id", subCategoryID)
@@ -1351,6 +1687,12 @@ func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProvi
 		return nil, err
 	}
 	if response.StatusCode() != fasthttp.StatusOK {
+		// The catalog is browsable for every provider, but playback is refused
+		// unless the account is subscribed to that provider.
+		if response.StatusCode() == fasthttp.StatusForbidden || response.StatusCode() == fasthttp.StatusUnauthorized {
+			utils.SafeLogf("Premium playback refused for provider %s (status %d): %s", providerID, response.StatusCode(), truncateForLog(response.Body(), 200))
+			return nil, ErrPremiumNotSubscribed
+		}
 		return nil, fmt.Errorf("request failed with status code: %d, body: %s", response.StatusCode(), response.Body())
 	}
 

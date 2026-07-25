@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	neturl "net/url"
 	"regexp"
@@ -354,7 +355,11 @@ func RenderHandler(c *fiber.Ctx) error {
 	re := regexp.MustCompile(pattern)
 	// Add baseUrl to all the file names ending with .m3u8
 	baseUrl := []byte(re.ReplaceAllString(baseStringUrl, ""))
-	params := split_url_by_params[1]
+	// Premium provider VOD streams have no query string at all.
+	params := ""
+	if len(split_url_by_params) > 1 {
+		params = split_url_by_params[1]
+	}
 	// If upstream rotated __hdnea__, update params so rewritten URLs carry the fresh token value
 	if newHdnea != "" {
 		if strings.Contains(params, "hdnea=") {
@@ -663,7 +668,29 @@ func PremiumProviderPlayHandler(c *fiber.Ctx) error {
 
 	playbackResult, err := television.PremiumProviderPlayback(c.Params("id"), playRequest)
 	if err != nil {
+		if errors.Is(err, television.ErrPremiumNotSubscribed) {
+			// Pass the message as a string: ErrorResponse marshals the value, and
+			// an error value would serialise as an empty object.
+			return internalUtils.ForbiddenError(c, err.Error())
+		}
 		return ErrorMessageHandler(c, err)
+	}
+
+	// Premium provider content is usually DASH protected by Widevine, so it
+	// has to be rendered by the DRM player rather than the HLS player.
+	if playbackResult.HasDRMStream() {
+		drmMpdOutput, drmErr := buildDrmMpdOutput(playbackResult, c.Params("id"), c.Query("q"))
+		if drmErr != nil {
+			return internalUtils.InternalServerError(c, drmErr)
+		}
+		if drmMpdOutput.IsDRM {
+			return c.Render("views/player_drm", fiber.Map{
+				"play_url":     drmMpdOutput.PlayUrl,
+				"license_url":  drmMpdOutput.LicenseUrl,
+				"channel_host": drmMpdOutput.Tv_url_host,
+				"channel_path": drmMpdOutput.Tv_url_path,
+			})
+		}
 	}
 
 	playbackURL := television.ResolvePlaybackURL(playbackResult)

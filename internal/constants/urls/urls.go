@@ -25,9 +25,13 @@ const (
 	// Channel listing URLs
 	ChannelsAPIURL             = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=401"
 	ChannelURL                 = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=401"
-	PlansAPIURL                = "https://tv.media.jio.com/apis/v2.0/plans/get?langId=6"
+	PlansAPIURL                = "https://tv.media.jio.com/apis/v2.1/plans/get?langId=6"
+	ActivePlansAPIURL          = "https://jiotvapi.media.jio.com/userservice/apis/v1/plans"
 	ProviderConfigAPIBaseURL   = "https://origin-gcp-api-jiotv.media.jio.com"
 	ProviderMetadataAPIBaseURL = "https://origin-gcp-content-jiotv.media.jio.com"
+
+	// Image base path for catalog artwork returned as relative paths
+	ImageBaseURL = "https://img.media.jio.com/"
 
 	// EPG URLs
 	EPGURL            = "https://jiotv.data.cdn.jio.com/apis/v1.3/getepg/get/?offset=%d&channel_id=%d"

@@ -38,9 +38,14 @@ const (
 	// Device info
 	DeviceTypePhone = "phone"
 	OSAndroid       = "android"
+
+	// Platform values for the X-Platform header
+	PlatformAndroid       = "android"
+	PlatformAndroidMobile = "android_mobile"
 	VersionCode315  = "315"
 	VersionCode389  = "389"
 	VersionCode401  = "401"
+	VersionCode413  = "413"
 
 	// API Key
 	APIKeyJio = "l7xx75e822925f184370b2e25170c5d5820a"

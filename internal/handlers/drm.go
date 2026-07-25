@@ -13,6 +13,7 @@ import (
 	"github.com/jiotv-go/jiotv_go/v3/internal/constants/headers"
 	internalUtils "github.com/jiotv-go/jiotv_go/v3/internal/utils"
 	"github.com/jiotv-go/jiotv_go/v3/pkg/secureurl"
+	"github.com/jiotv-go/jiotv_go/v3/pkg/television"
 	"github.com/jiotv-go/jiotv_go/v3/pkg/utils"
 	"github.com/valyala/fasthttp"
 )
@@ -24,22 +25,31 @@ func getDrmMpd(channelID, quality string) (*DrmMpdOutput, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !liveResult.IsDRM {
+	return buildDrmMpdOutput(liveResult, channelID, quality)
+}
+
+// buildDrmMpdOutput turns a playback response into the properties needed to
+// render the DRM player. It is shared by live channels and premium provider
+// content, which return the same payload shape.
+func buildDrmMpdOutput(liveResult *television.LiveURLOutput, channelID, quality string) (*DrmMpdOutput, error) {
+	bitrates := liveResult.Mpd.ResolvedBitrates()
+
+	if !liveResult.IsDRM && !liveResult.HasDRMStream() {
 		return &DrmMpdOutput{
 			IsDRM:       false,
-			PlayUrl:     liveResult.Mpd.Bitrates.Auto,
+			PlayUrl:     bitrates.Auto,
 			LicenseUrl:  "",
 			Tv_url_host: "",
 			Tv_url_path: "",
 		}, nil
 	}
-	enc_key, err := secureurl.EncryptURL(liveResult.Mpd.Key)
+	enc_key, err := secureurl.EncryptURL(liveResult.ResolvedLicenseURL())
 	if err != nil {
 		utils.Log.Panicln(err)
 		return nil, err
 	}
 
-	tv_url := internalUtils.SelectQuality(quality, liveResult.Mpd.Bitrates.Auto, liveResult.Mpd.Bitrates.High, liveResult.Mpd.Bitrates.Medium, liveResult.Mpd.Bitrates.Low)
+	tv_url := internalUtils.SelectQuality(quality, bitrates.Auto, bitrates.High, bitrates.Medium, bitrates.Low)
 
 	channel_enc_url, err := secureurl.EncryptURL(tv_url)
 	if err != nil {
