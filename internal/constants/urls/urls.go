@@ -23,8 +23,8 @@ const (
 	RefreshSSOTokenURL = "https://tv.media.jio.com/apis/v2.0/loginotp/refresh?langId=6"
 
 	// Channel listing URLs
-	ChannelsAPIURL             = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=401"
-	ChannelURL                 = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=401"
+	ChannelsAPIURL             = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=413"
+	ChannelURL                 = "https://jiotvapi.cdn.jio.com/apis/v3.1/getMobileChannelList/get/?langId=6&os=android&devicetype=phone&usertype=JIO&version=413"
 	PlansAPIURL                = "https://tv.media.jio.com/apis/v2.1/plans/get?langId=6"
 	ActivePlansAPIURL          = "https://jiotvapi.media.jio.com/userservice/apis/v1/plans"
 	ProviderConfigAPIBaseURL   = "https://origin-gcp-api-jiotv.media.jio.com"
@@ -34,7 +34,9 @@ const (
 	ImageBaseURL = "https://img.media.jio.com/"
 
 	// EPG URLs
-	EPGURL            = "https://jiotv.data.cdn.jio.com/apis/v1.3/getepg/get/?offset=%d&channel_id=%d"
+	// The path must not carry a trailing slash before the query string: the
+	// upstream API answers 404 for "getepg/get/?..." and 200 for "getepg/get?...".
+	EPGURL            = "https://jiotv.data.cdn.jio.com/apis/v1.3/getepg/get?offset=%d&channel_id=%d"
 	EPGPosterURL      = "https://jiotv.catchup.cdn.jio.com/dare_images/shows"
 	EPGPosterURLSlash = "https://jiotv.catchup.cdn.jio.com/dare_images/shows/"
 )

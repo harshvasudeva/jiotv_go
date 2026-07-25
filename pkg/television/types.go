@@ -27,13 +27,26 @@ type Channel struct {
 	Category int    `json:"channelCategoryId"`
 	Language int    `json:"channelLanguageId"`
 	IsHD     bool   `json:"isHD"`
+
+	// RequiresSubscription marks channels the playback API refuses with
+	// "No eligible plans found" unless the account subscribes separately.
+	// It is derived from business_type, not from the API's own is_premium flag:
+	// is_premium is set on many freely playable channels and mispredicts
+	// roughly one in five, while business_type=="premium" matched playability
+	// exactly across a sample covering all four business types.
+	RequiresSubscription bool `json:"requiresSubscription"`
 }
+
+// businessTypePremium is the business_type value marking channels that need a
+// separate subscription.
+const businessTypePremium = "premium"
 
 // UnmarshalJSON to Override Channel.ID to convert int from json to string
 func (c *Channel) UnmarshalJSON(b []byte) error {
 	type Alias Channel
 	aux := &struct {
-		ID int `json:"channel_id"`
+		ID           int    `json:"channel_id"`
+		BusinessType string `json:"business_type"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -42,6 +55,7 @@ func (c *Channel) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	c.ID = strconv.Itoa(aux.ID)
+	c.RequiresSubscription = strings.EqualFold(strings.TrimSpace(aux.BusinessType), businessTypePremium)
 	return nil
 }
 

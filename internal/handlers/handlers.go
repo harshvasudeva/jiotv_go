@@ -673,6 +673,9 @@ func PremiumProviderPlayHandler(c *fiber.Ctx) error {
 			// an error value would serialise as an empty object.
 			return internalUtils.ForbiddenError(c, err.Error())
 		}
+		if errors.Is(err, television.ErrPremiumUpstreamUnavailable) {
+			return internalUtils.ErrorResponse(c, fiber.StatusBadGateway, err.Error())
+		}
 		return ErrorMessageHandler(c, err)
 	}
 

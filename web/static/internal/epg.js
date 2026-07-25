@@ -129,7 +129,7 @@ function renderSimilarChannels(similarChannels) {
                     src="${logoURL}"
                     loading="lazy"
                     alt="${channel.channel_name}"
-                    class="channel-logo h-12 w-12 sm:h-14 sm:w-14"
+                    class="channel-logo"
                     onerror="this.style.display='none'"
                 />
                 <span class="font-bold channel-title line-clamp-2 text-sm">${channel.channel_name}</span>

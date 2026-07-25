@@ -2,60 +2,375 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Design tokens
+   Values Tailwind cannot express as utilities: the ambient page gradient, the
+   accent used by glows, and the shared motion curve.
+--------------------------------------------------------------------------- */
 @layer base {
+  :root {
+    --accent-rgb: 225 29 72;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
   html,
   body {
     min-height: 100%;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-base-200 text-base-content antialiased;
+  }
+
+  /* A faint spotlight behind the page keeps large dark areas from reading as
+     flat black, without adding an element to every template. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(58rem 34rem at 12% -8%, rgb(var(--accent-rgb) / 0.13), transparent 60%),
+      radial-gradient(48rem 30rem at 92% 4%, rgb(139 92 246 / 0.1), transparent 62%);
+  }
+
+  [data-theme="light"] body::before {
+    background:
+      radial-gradient(58rem 34rem at 12% -8%, rgb(var(--accent-rgb) / 0.07), transparent 60%),
+      radial-gradient(48rem 30rem at 92% 4%, rgb(124 58 237 / 0.06), transparent 62%);
+  }
+
+  ::selection {
+    background: rgb(var(--accent-rgb) / 0.3);
+  }
+
+  /* Slim, unobtrusive scrollbars in keeping with a media UI. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-base-300;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--accent-rgb) / 0.55);
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary/70 ring-offset-2 ring-offset-base-200;
   }
 }
 
 @layer components {
+  /* ---------------------------------------------------------------- layout */
   .app-shell {
-    @apply mx-auto w-full max-w-[1440px] px-3 sm:px-4 lg:px-6;
+    @apply mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-10;
   }
 
   .surface-card {
-    @apply rounded-2xl border border-base-300/70 bg-base-100/90 shadow-sm backdrop-blur;
+    @apply relative rounded-2xl border border-base-300/60 bg-base-100/70 shadow-elevated backdrop-blur-xl;
+  }
+
+  /* Hairline highlight along the top edge — the detail that makes a flat panel
+     read as a surface catching light. */
+  .surface-card::before {
+    content: "";
+    position: absolute;
+    inset-inline: 1rem;
+    top: 0;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.14), transparent);
+  }
+
+  [data-theme="light"] .surface-card::before {
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.9), transparent);
   }
 
   .section-heading {
-    @apply text-lg font-semibold tracking-tight sm:text-xl;
+    @apply text-xl font-semibold tracking-tight sm:text-2xl;
+  }
+
+  .section-eyebrow {
+    @apply text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-primary;
   }
 
   .muted-copy {
-    @apply text-sm text-base-content/70;
+    @apply text-sm text-base-content/60;
   }
 
+  /* ------------------------------------------------------------------- nav */
+  .site-nav {
+    @apply sticky top-0 z-50 border-b border-base-300/50 bg-base-200/70 backdrop-blur-2xl;
+  }
+
+  .brand-mark {
+    @apply flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-elevated;
+    background: linear-gradient(135deg, #f43f5e, #e11d48 45%, #9f1239);
+  }
+
+  /* ------------------------------------------------------------------ hero */
+  .hero-panel {
+    @apply relative overflow-hidden rounded-3xl border border-base-300/60 px-6 py-10 shadow-float sm:px-10 sm:py-14;
+    background:
+      radial-gradient(38rem 22rem at 8% 0%, rgb(var(--accent-rgb) / 0.28), transparent 62%),
+      radial-gradient(34rem 20rem at 95% 100%, rgb(139 92 246 / 0.24), transparent 60%),
+      linear-gradient(135deg, #14161f 0%, #0d0f16 55%, #101320 100%);
+  }
+
+  [data-theme="light"] .hero-panel {
+    background:
+      radial-gradient(38rem 22rem at 8% 0%, rgb(var(--accent-rgb) / 0.16), transparent 62%),
+      radial-gradient(34rem 20rem at 95% 100%, rgb(124 58 237 / 0.14), transparent 60%),
+      linear-gradient(135deg, #ffffff 0%, #f7f8fb 55%, #eef1f7 100%);
+  }
+
+  /* Diagonal sheen across the hero. */
+  .hero-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 40%, rgb(255 255 255 / 0.05) 50%, transparent 60%);
+  }
+
+  .hero-title {
+    @apply text-balance text-3xl font-bold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl;
+  }
+
+  .hero-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(120deg, #fff 0%, #ffd7de 40%, #fb7185 75%);
+  }
+
+  [data-theme="light"] .hero-gradient-text {
+    background-image: linear-gradient(120deg, #1a1c24 0%, #9f1239 55%, #e11d48 90%);
+  }
+
+  .stat-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-base-300/60 bg-base-100/40 px-3.5 py-1.5 text-xs font-medium backdrop-blur;
+  }
+
+  /* -------------------------------------------------------------- controls */
   .control-input {
-    @apply input input-bordered w-full rounded-xl border-base-300 bg-base-100;
+    @apply input input-bordered h-12 w-full rounded-xl border-base-300/70 bg-base-100/60 text-sm transition duration-200 placeholder:text-base-content/30 focus:border-primary/60 focus:bg-base-100 focus:outline-none;
   }
 
   .control-select {
-    @apply select select-bordered w-full rounded-xl border-base-300 bg-base-100;
+    @apply select select-bordered h-12 w-full rounded-xl border-base-300/70 bg-base-100/60 text-sm transition duration-200 focus:border-primary/60 focus:bg-base-100 focus:outline-none;
   }
 
+  .btn-premium {
+    @apply btn border-0 text-white shadow-elevated transition duration-200;
+    background: linear-gradient(135deg, #f43f5e, #e11d48 60%, #be123c);
+  }
+
+  .btn-premium:hover {
+    background: linear-gradient(135deg, #fb7185, #f43f5e 60%, #e11d48);
+    box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.4), 0 14px 38px -10px rgb(var(--accent-rgb) / 0.6);
+    transform: translateY(-1px);
+  }
+
+  .btn-glass {
+    @apply btn border border-base-300/70 bg-base-100/50 text-base-content backdrop-blur transition duration-200 hover:border-primary/50 hover:bg-base-100;
+  }
+
+  /* ---------------------------------------------------------- channel card */
+  /* The outer element stays display:block — the search filter toggles
+     style.display between 'block' and 'none', which would clobber flex. */
   .channel-card {
-    @apply card relative overflow-hidden rounded-2xl border border-base-300/80 bg-base-100 shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary;
+    @apply relative block overflow-hidden rounded-2xl border border-base-300/50 bg-base-100/50 shadow-elevated backdrop-blur-sm;
+    /* background-color is deliberately not transitioned: switching theme would
+       otherwise animate every card in the grid at once. */
+    transition:
+      transform 0.32s var(--ease-out-expo),
+      border-color 0.32s var(--ease-out-expo),
+      box-shadow 0.32s var(--ease-out-expo);
+  }
+
+  /* Accent wash that fades in behind the artwork on hover. */
+  .channel-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.32s var(--ease-out-expo);
+    background: linear-gradient(160deg, rgb(var(--accent-rgb) / 0.16), transparent 55%);
+  }
+
+  .channel-card:hover {
+    @apply -translate-y-1.5 border-primary/40 bg-base-100/80 shadow-float;
+  }
+
+  .channel-card:hover::after {
+    opacity: 1;
+  }
+
+  .channel-card:active {
+    @apply -translate-y-0.5;
   }
 
   .channel-card-inner {
-    @apply flex flex-col items-center gap-2 p-3 sm:p-4;
+    @apply relative z-[1] flex flex-col items-center gap-2.5 p-4 sm:p-5;
   }
 
   .channel-logo {
-    @apply h-14 w-14 rounded-xl bg-base-200 object-cover sm:h-16 sm:w-16 lg:h-20 lg:w-20;
+    @apply h-16 w-16 rounded-2xl bg-base-200/80 object-contain p-1 ring-1 ring-base-300/50 sm:h-[4.5rem] sm:w-[4.5rem] lg:h-20 lg:w-20;
+    transition: transform 0.32s var(--ease-out-expo);
+  }
+
+  .channel-card:hover .channel-logo {
+    @apply scale-[1.07];
   }
 
   .channel-title {
-    @apply text-center text-sm font-bold leading-tight sm:text-base;
+    @apply text-center text-[0.84rem] font-semibold leading-snug tracking-tight sm:text-sm;
+  }
+
+  .quality-badge {
+    @apply rounded-md border border-base-300/70 bg-base-200/70 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wider text-base-content/60;
+  }
+
+  .quality-badge-hd {
+    @apply border-primary/40 bg-primary/10 text-primary;
+  }
+
+  .quality-badge-locked {
+    @apply inline-flex items-center gap-1 border-warning/40 bg-warning/10 text-warning;
+  }
+
+  /* Channels the account cannot play are dimmed rather than hidden, so they
+     stay discoverable but read as unavailable at a glance. */
+  .channel-card-locked .channel-logo,
+  .channel-card-locked .channel-title {
+    @apply opacity-50;
+  }
+
+  .channel-card-locked:hover .channel-logo,
+  .channel-card-locked:hover .channel-title {
+    @apply opacity-80;
+  }
+
+  /* !important is required: the search filter writes display inline. */
+  .hide-locked-channels .channel-card[data-requires-subscription="true"] {
+    display: none !important;
+  }
+
+  .favorite-btn {
+    @apply absolute right-2 top-2 z-[2] grid h-8 w-8 place-items-center rounded-full border border-base-300/60 bg-base-200/80 text-base-content/70 backdrop-blur transition duration-200 hover:scale-110 hover:border-primary/50 hover:text-primary;
+  }
+
+  /* ----------------------------------------------------------- poster card */
+  /* Premium catalog artwork is portrait key art rather than a square logo. */
+  .poster-card {
+    @apply relative block overflow-hidden rounded-2xl border border-base-300/50 bg-base-100/50 shadow-elevated;
+    transition:
+      transform 0.32s var(--ease-out-expo),
+      border-color 0.32s var(--ease-out-expo),
+      box-shadow 0.32s var(--ease-out-expo);
+  }
+
+  .poster-card:hover {
+    @apply -translate-y-1.5 border-primary/40 shadow-float;
+  }
+
+  .poster-frame {
+    @apply relative w-full overflow-hidden bg-base-200;
+    aspect-ratio: 2 / 3;
+  }
+
+  .poster-image {
+    @apply h-full w-full object-cover;
+    transition: transform 0.5s var(--ease-out-expo);
+  }
+
+  .poster-card:hover .poster-image {
+    @apply scale-105;
+  }
+
+  .poster-scrim {
+    @apply pointer-events-none absolute inset-0;
+    background: linear-gradient(to top, rgb(8 9 16 / 0.94) 0%, rgb(8 9 16 / 0.55) 32%, transparent 62%);
+  }
+
+  .poster-body {
+    @apply absolute inset-x-0 bottom-0 z-[1] p-3;
+  }
+
+  .poster-play {
+    @apply absolute inset-0 z-[2] grid place-items-center opacity-0 transition duration-300;
+  }
+
+  .poster-card:hover .poster-play {
+    @apply opacity-100;
+  }
+
+  .poster-play-btn {
+    @apply grid h-12 w-12 place-items-center rounded-full text-white shadow-float;
+    background: linear-gradient(135deg, #f43f5e, #e11d48);
+    transform: scale(0.85);
+    transition: transform 0.3s var(--ease-out-expo);
+  }
+
+  .poster-card:hover .poster-play-btn {
+    transform: scale(1);
+  }
+
+  /* --------------------------------------------------------- provider tile */
+  .provider-tile {
+    @apply relative flex items-center gap-3 overflow-hidden rounded-2xl border border-base-300/60 bg-base-100/60 px-4 py-3 shadow-elevated backdrop-blur;
+    transition:
+      transform 0.3s var(--ease-out-expo),
+      border-color 0.3s var(--ease-out-expo),
+      box-shadow 0.3s var(--ease-out-expo);
+  }
+
+  .provider-tile:hover {
+    @apply -translate-y-1 border-primary/50 shadow-float;
+  }
+
+  .provider-logo {
+    @apply h-11 w-11 shrink-0 rounded-xl bg-base-200/80 object-contain p-1 ring-1 ring-base-300/50;
+  }
+
+  /* ------------------------------------------------------------- utilities */
+  .empty-state {
+    @apply surface-card grid place-items-center gap-3 px-6 py-14 text-center;
+  }
+
+  .icon-badge {
+    @apply grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary;
+  }
+
+  .scroll-top-btn {
+    @apply fixed bottom-5 right-5 z-40 grid h-12 w-12 place-items-center rounded-full text-white shadow-float transition duration-300 hover:scale-110;
+    background: linear-gradient(135deg, #f43f5e, #e11d48);
   }
 }
 
 @layer utilities {
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -65,5 +380,19 @@
 
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }

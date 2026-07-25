@@ -8,19 +8,39 @@
   </head>
 
   <body class="min-h-screen bg-base-200 text-base-content">
-    <a href="#main-content" class="sr-only z-50 rounded-lg bg-base-100 px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:left-3 focus:top-3">
+    <a
+      href="#main-content"
+      class="sr-only z-50 rounded-lg bg-base-100 px-3 py-2 text-sm font-medium focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+    >
       Skip to content
     </a>
     {{ template "navbar" . }}
 
-    <main id="main-content" class="pb-12">
-      <div class="app-shell py-4 sm:py-6">
+    <main id="main-content" class="pb-16">
+      <div class="app-shell py-5 sm:py-7">
+        <div
+          id="subscription-notice"
+          class="mb-4 hidden items-start gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3.5"
+          role="status"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true">
+            <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z" clip-rule="evenodd" />
+          </svg>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold tracking-tight">Not included in your plan</p>
+            <p class="mt-0.5 text-sm text-base-content/60">
+              JioTV reports no eligible plan for this channel, so playback will fail. It needs a separate subscription.
+            </p>
+          </div>
+        </div>
+
         <div class="grid gap-5 xl:grid-cols-12">
+          <!-- Player -->
           <section class="xl:col-span-8">
-            <div class="surface-card p-2 sm:p-3">
+            <div class="surface-card overflow-hidden p-2 sm:p-2.5">
               <div
                 id="player"
-                class="relative overflow-hidden rounded-2xl bg-black"
+                class="relative overflow-hidden rounded-xl bg-black shadow-float"
                 style="aspect-ratio: 16/9; min-height: 220px"
               >
                 <iframe
@@ -35,9 +55,23 @@
                   allow="autoplay"
                 ></iframe>
               </div>
-              <div class="mt-3 flex justify-center">
-                <button id="aspect-43-toggle" class="btn btn-outline btn-sm rounded-xl" onclick="toggleAspectRatio()" aria-label="Toggle player aspect ratio">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-5">
+
+              <div class="flex items-center justify-between gap-3 px-2 pb-1 pt-3">
+                <span class="inline-flex items-center gap-2 text-xs font-medium text-base-content/50">
+                  <span class="relative flex h-1.5 w-1.5">
+                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-error opacity-75"></span>
+                    <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-error"></span>
+                  </span>
+                  Live stream
+                </span>
+
+                <button
+                  id="aspect-43-toggle"
+                  class="btn-glass h-9 min-h-0 gap-1.5 rounded-lg px-3 text-xs font-medium"
+                  onclick="toggleAspectRatio()"
+                  aria-label="Toggle player aspect ratio"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
                     <path
                       fill-rule="evenodd"
                       d="M12 2.25a.75.75 0 0 1 .75.75v16.19l6.22-6.22a.75.75 0 1 1 1.06 1.06l-7.5 7.5a.75.75 0 0 1-1.06 0l-7.5-7.5a.75.75 0 1 1 1.06-1.06l6.22 6.22V3a.75.75 0 0 1 .75-.75Z"
@@ -49,33 +83,48 @@
             </div>
           </section>
 
+          <!-- Now playing / EPG -->
           <aside class="xl:col-span-4">
-            <div id="epg_parent" class="surface-card h-full p-4 sm:p-5">
-              <h2 class="section-heading">Now Playing</h2>
-              <div id="epg" class="mt-4">
-                <div class="card rounded-2xl border border-base-300/70 bg-base-100 shadow-sm">
-                  <figure class="overflow-hidden rounded-t-2xl">
-                    <img id="episodePoster" alt="Episode Poster" class="h-48 w-full object-cover" />
+            <div id="epg_parent" class="surface-card h-full overflow-hidden">
+              <div class="flex items-center gap-2.5 border-b border-base-300/50 px-5 py-4">
+                <span class="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M4.5 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L7.28 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+                <h2 class="text-base font-semibold tracking-tight">Now playing</h2>
+              </div>
+
+              <div id="epg" class="p-4 sm:p-5">
+                <div class="overflow-hidden rounded-2xl border border-base-300/50 bg-base-200/40">
+                  <figure class="relative overflow-hidden">
+                    <img id="episodePoster" alt="Episode Poster" class="h-44 w-full object-cover" />
+                    <span class="pointer-events-none absolute inset-0 bg-gradient-to-t from-base-100/80 to-transparent"></span>
                   </figure>
-                  <div class="card-body p-4">
-                    <h2 id="showname" class="card-title text-base"></h2>
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="badge badge-error badge-outline">Live</div>
-                      <div class="text-xs text-base-content/70 sm:text-sm">
+
+                  <div class="p-4">
+                    <h2 id="showname" class="text-[0.95rem] font-semibold leading-snug tracking-tight"></h2>
+
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <span class="inline-flex items-center gap-1.5 rounded-md border border-error/40 bg-error/10 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wider text-error">
+                        Live
+                      </span>
+                      <div class="text-xs text-base-content/55">
                         <span>Ends in </span>
-                        <span id="countdown_hour" class="countdown">
+                        <span id="countdown_hour" class="countdown font-semibold text-base-content/80">
                           <span id="e_hour" style="--value:0;"></span>h
                         </span>
-                        <span id="countdown_minute" class="countdown">
+                        <span id="countdown_minute" class="countdown font-semibold text-base-content/80">
                           <span id="e_minute" style="--value:0;"></span>m
                         </span>
-                        <span id="countdown_second" class="countdown">
+                        <span id="countdown_second" class="countdown font-semibold text-base-content/80">
                           <span id="e_second" style="--value:0;"></span>s
                         </span>
                       </div>
                     </div>
-                    <p id="description" class="text-sm text-base-content/80"></p>
-                    <div id="keywords" class="card-actions justify-end">
+
+                    <p id="description" class="mt-3 text-sm leading-relaxed text-base-content/65"></p>
+                    <div id="keywords" class="mt-3 flex flex-wrap justify-end gap-1.5">
                       <div class="hidden badge badge-outline"></div>
                     </div>
                   </div>
@@ -85,12 +134,19 @@
           </aside>
         </div>
 
-        <section id="similar_channels_parent" class="mt-6 hidden">
-          <div class="mb-3 flex items-end justify-between gap-3">
-            <h2 class="section-heading">Similar Channels</h2>
+        <!-- Similar channels -->
+        <section id="similar_channels_parent" class="mt-9 hidden">
+          <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p class="section-eyebrow">You might also like</p>
+              <h2 class="section-heading mt-1.5">Similar channels</h2>
+            </div>
             <p class="muted-copy hidden sm:block">Picked from matching category and language.</p>
           </div>
-          <div id="similar_channels" class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          <div
+            id="similar_channels"
+            class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8"
+          >
             <!-- Similar channels are populated by JavaScript -->
           </div>
         </section>
@@ -101,8 +157,8 @@
       const channelId = {{ printf "%q" .ChannelID }};
       let current43Mode = false;
 
-      const DOWN_ARROW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-5"><path fill-rule="evenodd" d="M12 2.25a.75.75 0 0 1 .75.75v16.19l6.22-6.22a.75.75 0 1 1 1.06 1.06l-7.5 7.5a.75.75 0 0 1-1.06 0l-7.5-7.5a.75.75 0 1 1 1.06-1.06l6.22 6.22V3a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" /></svg>';
-      const UP_ARROW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-5"><path fill-rule="evenodd" d="M11.47 2.47a.75.75 0 0 1 1.06 0l7.5 7.5a.75.75 0 1 1-1.06 1.06l-6.22-6.22V21a.75.75 0 0 1-1.5 0V4.81l-6.22 6.22a.75.75 0 1 1-1.06-1.06l7.5-7.5Z" clip-rule="evenodd" /></svg>';
+      const DOWN_ARROW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path fill-rule="evenodd" d="M12 2.25a.75.75 0 0 1 .75.75v16.19l6.22-6.22a.75.75 0 1 1 1.06 1.06l-7.5 7.5a.75.75 0 0 1-1.06 0l-7.5-7.5a.75.75 0 1 1 1.06-1.06l6.22 6.22V3a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" /></svg>';
+      const UP_ARROW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path fill-rule="evenodd" d="M11.47 2.47a.75.75 0 0 1 1.06 0l7.5 7.5a.75.75 0 1 1-1.06 1.06l-6.22-6.22V21a.75.75 0 0 1-1.5 0V4.81l-6.22 6.22a.75.75 0 1 1-1.06-1.06l7.5-7.5Z" clip-rule="evenodd" /></svg>';
 
       function updateAspectRatioUI(is43Mode) {
         const playerContainer = document.getElementById("player");
@@ -136,7 +192,29 @@
           current43Mode = true;
         }
         updateAspectRatioUI(current43Mode);
+        revealSubscriptionNotice();
       });
+
+      // Reuses the client-side channel cache from epg.js, so this costs no
+      // extra server request.
+      async function revealSubscriptionNotice() {
+        const notice = document.getElementById("subscription-notice");
+        if (!notice || typeof getCachedChannels !== "function") return;
+        // channelId is rendered with printf %q, so it arrives wrapped in
+        // literal quote characters that have to be stripped before comparing.
+        const currentId = String(channelId).replace(/^"+|"+$/g, "");
+        try {
+          const data = await getCachedChannels();
+          const rows = (data && (data.result || data.channels)) || [];
+          const channel = rows.find((c) => String(c.channel_id ?? c.id) === currentId);
+          if (channel && channel.requiresSubscription) {
+            notice.classList.remove("hidden");
+            notice.classList.add("flex");
+          }
+        } catch (_) {
+          // A failed lookup should never block playback.
+        }
+      }
     </script>
     <script src="/static/internal/utils.js"></script>
     <script src="/static/internal/common.js"></script>

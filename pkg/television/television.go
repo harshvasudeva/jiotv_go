@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	neturl "net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -132,7 +133,7 @@ func New(credentials *utils.JIOTV_CREDENTIALS) *Television {
 		"uniqueId":        credentials.UniqueID,
 		headers.UserAgent: headers.UserAgentOkHttp,
 		"usergroup":       "tvYR7NSNn7rymo3F",
-		"versionCode":     headers.VersionCode389,
+		"versionCode":     headers.VersionCode413,
 	}
 
 	// Create a fasthttp.Client
@@ -1326,10 +1327,38 @@ func firstStringByPaths(rawItem map[string]interface{}, paths ...string) string 
 // relative to the JioTV image host.
 func absoluteImageURL(imagePath string) string {
 	trimmedPath := strings.TrimSpace(imagePath)
-	if trimmedPath == "" || strings.HasPrefix(trimmedPath, "http://") || strings.HasPrefix(trimmedPath, "https://") {
-		return trimmedPath
+	if trimmedPath == "" {
+		return ""
 	}
-	return urls.ImageBaseURL + strings.TrimPrefix(trimmedPath, "/")
+	if !strings.HasPrefix(trimmedPath, "http://") && !strings.HasPrefix(trimmedPath, "https://") {
+		trimmedPath = urls.ImageBaseURL + strings.TrimPrefix(trimmedPath, "/")
+	}
+	return upscaleCatalogArtwork(trimmedPath)
+}
+
+// catalogArtworkWidth is the width requested for premium poster art. The API
+// hands back width=216 by default, which is visibly soft on a poster-sized
+// card, let alone on a high-density display.
+const catalogArtworkWidth = 480
+
+var catalogArtworkWidthPattern = regexp.MustCompile(`([?&])width=(\d+)`)
+
+// upscaleCatalogArtwork raises the width parameter on JioTV image URLs and
+// drops the low-quality flag, leaving URLs without a width untouched.
+func upscaleCatalogArtwork(imageURL string) string {
+	upgraded := catalogArtworkWidthPattern.ReplaceAllStringFunc(imageURL, func(match string) string {
+		submatches := catalogArtworkWidthPattern.FindStringSubmatch(match)
+		if len(submatches) != 3 {
+			return match
+		}
+		currentWidth, err := strconv.Atoi(submatches[2])
+		if err != nil || currentWidth >= catalogArtworkWidth {
+			return match
+		}
+		return submatches[1] + "width=" + strconv.Itoa(catalogArtworkWidth)
+	})
+
+	return strings.ReplaceAll(upgraded, "optimize=low", "optimize=high")
 }
 
 func mapPremiumProviderCatalogItems(rawItems []map[string]interface{}, providerID string) []PremiumProviderCatalogItem {
@@ -1604,6 +1633,10 @@ func ResolvePlaybackURL(result *LiveURLOutput) string {
 // catalog but is not entitled to play its content.
 var ErrPremiumNotSubscribed = errors.New("your account is not subscribed to this premium provider")
 
+// ErrPremiumUpstreamUnavailable is returned when JioTV's playback edge fails
+// with a gateway error, which is usually transient.
+var ErrPremiumUpstreamUnavailable = errors.New("JioTV's playback service is temporarily unavailable, please try again")
+
 // PremiumProviderPlayback resolves playback URL for a premium provider item.
 func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProviderPlayRequest) (*LiveURLOutput, error) {
 	if store.KVS == nil {
@@ -1683,10 +1716,25 @@ func PremiumProviderPlayback(providerIdentifier string, playRequest PremiumProvi
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
 
+	// The playback edge sits behind Varnish, which intermittently answers 5xx
+	// ("backend read error"). A single immediate retry clears it in practice.
 	if err := tv.Client.Do(request, response); err != nil {
 		return nil, err
 	}
+	if response.StatusCode() >= fasthttp.StatusInternalServerError {
+		utils.SafeLogf("Premium playback got %d from upstream, retrying once", response.StatusCode())
+		response.Reset()
+		if err := tv.Client.Do(request, response); err != nil {
+			return nil, err
+		}
+	}
 	if response.StatusCode() != fasthttp.StatusOK {
+		// Upstream gateway errors return an HTML error page; surface a short
+		// message instead of dumping the markup at the caller.
+		if response.StatusCode() >= fasthttp.StatusInternalServerError {
+			utils.SafeLogf("Premium playback upstream error for provider %s (status %d): %s", providerID, response.StatusCode(), truncateForLog(response.Body(), 200))
+			return nil, ErrPremiumUpstreamUnavailable
+		}
 		// The catalog is browsable for every provider, but playback is refused
 		// unless the account is subscribed to that provider.
 		if response.StatusCode() == fasthttp.StatusForbidden || response.StatusCode() == fasthttp.StatusUnauthorized {

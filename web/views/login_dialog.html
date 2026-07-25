@@ -1,48 +1,85 @@
 {{ define "login_dialog" }}
 <dialog id="login_modal" class="modal modal-bottom sm:modal-middle">
-  <form method="dialog" class="modal-box rounded-2xl border border-base-300/70 p-5 sm:p-6">
-    <h3 class="text-lg font-semibold tracking-tight">Login to JioTV</h3>
-    <p class="mt-1 text-sm text-base-content/70">Enter your Jio mobile number to receive OTP.</p>
-    <div class="mt-4 flex flex-col gap-3">
-      <label for="number" class="text-sm font-medium">Jio mobile number</label>
-      <input
-        id="number"
-        type="tel"
-        class="input input-bordered rounded-xl"
-        placeholder="9876543210"
-        pattern="[0-9]{10}"
-        minlength="10"
-        maxlength="10"
-      />
-      <button onclick="loginOTPClick()" class="btn btn-primary rounded-xl">Send OTP</button>
+  <form method="dialog" class="modal-box max-w-md rounded-3xl border border-base-300/60 bg-base-100/95 p-6 shadow-float backdrop-blur-2xl sm:p-7">
+    <span class="brand-mark mb-5">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-5 w-5" aria-hidden="true">
+        <path d="M4.5 5.25A2.25 2.25 0 0 1 6.75 3h10.5a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 14.25v-9Zm5.03 2.3a.75.75 0 0 0-1.155.632v3.636a.75.75 0 0 0 1.156.631l2.857-1.818a.75.75 0 0 0 0-1.264L9.53 7.55Z" />
+        <path d="M8.25 18.75a.75.75 0 0 0 0 1.5h7.5a.75.75 0 0 0 0-1.5h-7.5Z" />
+      </svg>
+    </span>
+
+    <h3 class="text-2xl font-bold tracking-tight">Welcome back</h3>
+    <p class="mt-2 text-sm leading-relaxed text-base-content/55">
+      Enter your Jio mobile number and we'll send a one-time password.
+    </p>
+
+    <div class="mt-6 flex flex-col gap-2">
+      <label for="number" class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
+        Jio mobile number
+      </label>
+      <div class="relative">
+        <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-base-content/40">
+          +91
+        </span>
+        <input
+          id="number"
+          type="tel"
+          class="control-input pl-12 tracking-wider"
+          placeholder="9876543210"
+          pattern="[0-9]{10}"
+          minlength="10"
+          maxlength="10"
+          autocomplete="tel"
+        />
+      </div>
+      <button onclick="loginOTPClick()" class="btn-premium mt-3 h-12 min-h-0 rounded-xl text-sm font-semibold">
+        Send OTP
+      </button>
     </div>
+
+    <p class="mt-5 text-center text-xs text-base-content/40">
+      Your credentials stay on this device.
+    </p>
   </form>
-  <form method="dialog" class="modal-backdrop">
+  <form method="dialog" class="modal-backdrop bg-black/70 backdrop-blur-sm">
     <button>close</button>
   </form>
 </dialog>
+
 <!-- Verify OTP Modal -->
 <dialog id="verify_otp_modal" class="modal modal-bottom sm:modal-middle">
-  <form method="dialog" class="modal-box rounded-2xl border border-base-300/70 p-5 sm:p-6">
-    <h3 class="text-lg font-semibold tracking-tight">Verify OTP</h3>
-    <p class="mt-1 text-sm text-base-content/70">Use the one-time password sent to your phone.</p>
-    <div class="mt-4 flex flex-col gap-3">
-      <label for="otp" class="text-sm font-medium">OTP</label>
+  <form method="dialog" class="modal-box max-w-md rounded-3xl border border-base-300/60 bg-base-100/95 p-6 shadow-float backdrop-blur-2xl sm:p-7">
+    <span class="icon-badge mb-5">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-6 w-6" aria-hidden="true">
+        <path fill-rule="evenodd" d="M1.5 4.5a3 3 0 0 1 3-3h1.372c.86 0 1.61.586 1.819 1.42l1.105 4.423a1.875 1.875 0 0 1-.694 1.955l-1.293.97c-.135.101-.164.249-.126.352a11.285 11.285 0 0 0 6.697 6.697c.103.038.25.009.352-.126l.97-1.293a1.875 1.875 0 0 1 1.955-.694l4.423 1.105c.834.209 1.42.959 1.42 1.82V19.5a3 3 0 0 1-3 3h-2.25C8.552 22.5 1.5 15.448 1.5 6.75V4.5Z" clip-rule="evenodd" />
+      </svg>
+    </span>
+
+    <h3 class="text-2xl font-bold tracking-tight">Verify OTP</h3>
+    <p class="mt-2 text-sm leading-relaxed text-base-content/55">
+      Enter the 6-digit code we just sent to your phone.
+    </p>
+
+    <div class="mt-6 flex flex-col gap-2">
+      <label for="otp" class="text-xs font-semibold uppercase tracking-wider text-base-content/50">
+        One-time password
+      </label>
       <input
         id="otp"
         type="number"
-        class="input input-bordered rounded-xl"
+        class="control-input text-center text-lg font-semibold tracking-[0.4em]"
         placeholder="543210"
         max="999999"
         min="100000"
+        autocomplete="one-time-code"
         required
       />
-      <button onclick="loginOTPVerifyClick()" class="btn btn-primary rounded-xl">
-        Verify
+      <button onclick="loginOTPVerifyClick()" class="btn-premium mt-3 h-12 min-h-0 rounded-xl text-sm font-semibold">
+        Verify &amp; continue
       </button>
     </div>
   </form>
-  <form method="dialog" class="modal-backdrop">
+  <form method="dialog" class="modal-backdrop bg-black/70 backdrop-blur-sm">
     <button>close</button>
   </form>
 </dialog>
