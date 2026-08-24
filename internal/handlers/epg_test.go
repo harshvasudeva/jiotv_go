@@ -260,3 +260,30 @@ func TestWebEPGHandlerBadRequest(t *testing.T) {
 		}
 	}
 }
+
+// TestWebEPGHandlerShortChannelID covers channel IDs shorter than the "sl"
+// prefix, which used to panic on a two-byte slice of a one-byte ID before the
+// prefix trim switched to strings.HasPrefix.
+func TestWebEPGHandlerShortChannelID(t *testing.T) {
+	defer setupWebEPGTest(t, "http://127.0.0.1:1")()
+
+	app := fiber.New()
+	app.Get("/epg/:channelID/:offset", WebEPGHandler)
+
+	// Each ID is shorter than or equal to the "sl" prefix and non-numeric, so
+	// the handler rejects it before making any upstream request.
+	for _, channelID := range []string{"s", "sl", "x"} {
+		t.Run(channelID, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/epg/"+channelID+"/0", nil)
+			response, err := app.Test(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+
+			if response.StatusCode != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", response.StatusCode, http.StatusBadRequest)
+			}
+		})
+	}
+}
