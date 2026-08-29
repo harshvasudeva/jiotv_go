@@ -246,6 +246,49 @@ func TestRenderHandler(t *testing.T) {
 	}
 }
 
+// TestRenderChannelDeadCache covers the negative cache that stops a live
+// player's repeated polling from re-running RenderHandler's full recovery
+// dance (fresh live URL + every quality candidate) against Jio's API once a
+// channel's manifest has already been confirmed missing.
+func TestRenderChannelDeadCache(t *testing.T) {
+	t.Run("unmarked channel is not recently dead", func(t *testing.T) {
+		id := "test-channel-unmarked"
+		defer clearChannelDead(id)
+		if isChannelRecentlyDead(id) {
+			t.Error("isChannelRecentlyDead() = true for a channel that was never marked")
+		}
+	})
+
+	t.Run("marked channel is recently dead until cleared", func(t *testing.T) {
+		id := "test-channel-marked"
+		defer clearChannelDead(id)
+		markChannelDead(id)
+		if !isChannelRecentlyDead(id) {
+			t.Error("isChannelRecentlyDead() = false immediately after markChannelDead()")
+		}
+		clearChannelDead(id)
+		if isChannelRecentlyDead(id) {
+			t.Error("isChannelRecentlyDead() = true after clearChannelDead()")
+		}
+	})
+
+	t.Run("expired mark is treated as not dead", func(t *testing.T) {
+		id := "test-channel-expired"
+		defer clearChannelDead(id)
+		renderChannelDeadCache.Store(id, time.Now().Add(-2*renderChannelDeadCacheTTL))
+		if isChannelRecentlyDead(id) {
+			t.Error("isChannelRecentlyDead() = true for a mark older than renderChannelDeadCacheTTL")
+		}
+	})
+
+	t.Run("empty channel ID is never dead", func(t *testing.T) {
+		markChannelDead("")
+		if isChannelRecentlyDead("") {
+			t.Error("isChannelRecentlyDead(\"\") = true; empty channel ID must never be cached")
+		}
+	})
+}
+
 func TestSLHandler(t *testing.T) {
 	type args struct {
 		c *fiber.Ctx
