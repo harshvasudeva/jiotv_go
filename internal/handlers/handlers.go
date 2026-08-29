@@ -36,6 +36,14 @@ var (
 	EnableDRM         bool
 	renderHDNEACache  sync.Map
 	tokenRefreshGroup singleflight.Group
+	// renderChannelDeadCache marks a channel that just exhausted every quality
+	// candidate and still got a 404 - i.e. its manifest path genuinely doesn't
+	// exist right now, not a transient auth hiccup. A live player keeps
+	// polling /render.m3u8 every few seconds regardless, and without this each
+	// poll would independently re-run the full recovery dance (fetch a fresh
+	// live URL, retry, try every quality candidate), hammering Jio's live-URL
+	// API for a channel that isn't coming back within the cooldown window.
+	renderChannelDeadCache sync.Map
 )
 
 const (
@@ -45,11 +53,45 @@ const (
 	REQUEST_USER_AGENT    = headers.UserAgentOkHttp
 	hdneaCacheTTL         = 60 * time.Second // Aggressive TTL: 60 seconds (tokens expire ~90-120s, keep cache short)
 	hdneaRefreshLeadTime  = 20 * time.Second
+	// renderChannelDeadCacheTTL mirrors the JioTV Android app's own default
+	// cooldown for a channel that failed to come up (BroadcastUnicastModel's
+	// BTUS_RETRY_TIMER default, 60s) before it tries bootstrapping again.
+	renderChannelDeadCacheTTL = 60 * time.Second
 )
 
 type hdneaCacheEntry struct {
 	Token     string
 	UpdatedAt time.Time
+}
+
+func isChannelRecentlyDead(channelID string) bool {
+	if channelID == "" {
+		return false
+	}
+	fetchedAtRaw, ok := renderChannelDeadCache.Load(channelID)
+	if !ok {
+		return false
+	}
+	fetchedAt, ok := fetchedAtRaw.(time.Time)
+	if !ok || time.Since(fetchedAt) > renderChannelDeadCacheTTL {
+		renderChannelDeadCache.Delete(channelID)
+		return false
+	}
+	return true
+}
+
+func markChannelDead(channelID string) {
+	if channelID == "" {
+		return
+	}
+	renderChannelDeadCache.Store(channelID, time.Now())
+}
+
+func clearChannelDead(channelID string) {
+	if channelID == "" {
+		return
+	}
+	renderChannelDeadCache.Delete(channelID)
 }
 
 // truncateToken returns first 10 and last 10 chars of token for logging
@@ -716,7 +758,15 @@ func RenderHandler(c *fiber.Ctx) error {
 			utils.Log.Printf("[DEBUG] Auth failure or not found (Status %d) - fetching fresh live URL and auth", statusCode)
 		}
 
-		if channel_id != "" {
+		if statusCode == fiber.StatusNotFound && isChannelRecentlyDead(channel_id) {
+			// This channel's manifest just 404'd across every quality candidate
+			// within the last renderChannelDeadCacheTTL; skip re-running that
+			// same expensive recovery for this poll and let the fresh 404 above
+			// propagate as-is.
+			if os.Getenv("JIOTV_DEBUG") == "true" {
+				utils.Log.Printf("[DEBUG] RenderHandler - channel %s recently exhausted recovery, skipping", channel_id)
+			}
+		} else if channel_id != "" {
 			if refreshedLiveResult, refreshErr := refreshChannelToken(channel_id); refreshErr == nil && refreshedLiveResult != nil {
 				if freshToken := extractLiveResultHDNEA(refreshedLiveResult); freshToken != "" {
 					setCachedHDNEA(hdneaKey, freshToken)
@@ -770,6 +820,17 @@ func RenderHandler(c *fiber.Ctx) error {
 							break
 						}
 					}
+
+					// Every quality candidate still 404'd: this channel's manifest
+					// genuinely doesn't exist right now, so stop the next several
+					// polls from re-running this same recovery against Jio's API.
+					if statusCode == fiber.StatusNotFound {
+						markChannelDead(channel_id)
+					} else {
+						clearChannelDead(channel_id)
+					}
+				} else if statusCode == fiber.StatusOK {
+					clearChannelDead(channel_id)
 				}
 			}
 		}
